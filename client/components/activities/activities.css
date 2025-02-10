@@ -1,0 +1,64 @@
+.activity-title {
+  margin: 0 0.5em 0.8em;
+  display: flex;
+  justify-content: space-between;
+}
+.reactions-popup .add-comment-reaction {
+  display: inline-block;
+  cursor: pointer;
+  border-radius: 5px;
+  font-size: 22px;
+  text-align: center;
+  line-height: 30px;
+  width: 40px;
+}
+.reactions-popup .add-comment-reaction:hover {
+  background-color: #b0c4de;
+}
+.activities {
+  clear: both;
+}
+.activities .activity {
+  margin: 0.5px 0;
+  padding: 6px 0;
+  display: flex;
+}
+.activities .activity .member {
+  width: 32px;
+  height: 32px;
+}
+.activities .activity .activity-member {
+  font-weight: 700;
+}
+.activities .activity .activity-desc {
+  word-wrap: break-word;
+  overflow: hidden;
+  flex: 1;
+  align-self: center;
+  margin: 0;
+  margin-left: 3px;
+  overflow: hidden;
+  word-break: break-word;
+}
+.activities .activity .activity-desc .activity-comment {
+  display: block;
+  border-radius: 3px;
+  background: #fff;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  margin-top: 5px;
+  padding: 5px;
+}
+.activities .activity .activity-desc .activity-checklist {
+  display: block;
+  border-radius: 3px;
+  background: #fff;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  margin-top: 5px;
+  padding: 5px;
+}
+.activities .activity .activity-desc .activity-meta {
+  font-size: 0.8em;
+  color: #999;
+}

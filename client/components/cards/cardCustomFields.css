@@ -1,0 +1,112 @@
+/* API Dropdown 커스텀 필드 스타일링 */
+.card-custom-field-apiDropdown {
+  /* 컨테이너 스타일 */
+  padding: 8px 0;
+}
+
+.card-custom-field-apiDropdown .selected-value {
+  display: inline-flex;
+  align-items: center;
+  background: #f0f2f5;
+  border-radius: 16px;
+  padding: 4px 12px;
+  margin: 0 8px 8px 0;
+  font-size: 13px;
+  color: #172b4d;
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.card-custom-field-apiDropdown .selected-value span {
+  margin-right: 6px;
+}
+
+.card-custom-field-apiDropdown .selected-value .js-remove-value {
+  color: #5e6c84;
+  cursor: pointer;
+  font-size: 12px;
+  transition: color 0.2s ease;
+}
+
+.card-custom-field-apiDropdown .selected-value .js-remove-value:hover {
+  color: #172b4d;
+}
+
+.card-custom-field-apiDropdown .js-depth-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #172b4d;
+  background-color: white;
+  transition: border-color 0.2s ease;
+}
+
+.card-custom-field-apiDropdown .js-depth-select:focus {
+  border-color: #0079bf;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 121, 191, 0.2);
+}
+
+.card-custom-field-apiDropdown .js-depth-select option {
+  padding: 8px;
+}
+
+.card-custom-field-apiDropdown .js-add-value {
+  background: #ebecf0;
+  border: none;
+  border-radius: 3px;
+  color: #172b4d;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.card-custom-field-apiDropdown .js-add-value:hover {
+  background: #dfe1e6;
+}
+
+.card-custom-field-apiDropdown .selected-tag {
+  display: inline-block;
+  background: #f0f2f5;
+  border-radius: 16px;
+  padding: 4px 12px;
+  margin: 0 8px 8px 0;
+  font-size: 13px;
+  color: #172b4d;
+}
+
+.card-custom-field-apiDropdown .edit-controls {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #dfe1e6;
+}
+
+.card-custom-field-apiDropdown .edit-controls button.primary {
+  background: #0079bf;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  padding: 6px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.card-custom-field-apiDropdown .edit-controls button.primary:hover {
+  background: #026aa7;
+}
+
+.card-custom-field-apiDropdown .edit-controls .js-close-inlined-form {
+  color: #5e6c84;
+  margin-left: 8px;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.card-custom-field-apiDropdown .edit-controls .js-close-inlined-form:hover {
+  color: #172b4d;
+}
