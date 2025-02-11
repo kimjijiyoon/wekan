@@ -162,11 +162,12 @@ BlazeComponent.extendComponent({
     console.log('팝업 생성중');
     this.autorun(() => {
       const boardId = Session.get('currentBoard');
-      this.page = new ReactiveVar(1);
-      this.loadingMore = new ReactiveVar(false);
-      this.reachedEnd = new ReactiveVar(false);
       this.subscribe('board', boardId, false);
     });
+
+    this.page = new ReactiveVar(1);
+    this.loadingMore = new ReactiveVar(false);
+    this.reachedEnd = new ReactiveVar(false);
 
     // 기존 스크롤 이벤트 제거 및 스크롤 방지
     $('.board-sidebar').css('overflow', 'hidden');
