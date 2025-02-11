@@ -86,7 +86,6 @@
 }
 
 .card-custom-field-apiDropdown .edit-controls button.primary {
-  background: #0079bf;
   color: white;
   border: none;
   border-radius: 3px;
@@ -97,7 +96,7 @@
 }
 
 .card-custom-field-apiDropdown .edit-controls button.primary:hover {
-  background: #026aa7;
+  filter: brightness(80%); /* 색을 20% 어둡게 */
 }
 
 .card-custom-field-apiDropdown .edit-controls .js-close-inlined-form {

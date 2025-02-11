@@ -495,7 +495,7 @@ template(name="cardTemplatesSidebar")
                   p.description= truncatedDescription
                 else
                   p.description= description
-                button.js-use-template.primary(data-template-id=_id data-parent-id=parentTemplateId class="{{#unless parentEnabled}}disabled{{/unless}}") {{_ 'Use Template'}}
+                button.js-use-template.primary(type="submit" data-template-id=_id data-parent-id=parentTemplateId class="{{#unless parentEnabled}}disabled{{/unless}}") {{_ 'Use Template'}}
 
 template(name="selectListPopup")
   .pop-over-content

@@ -175,7 +175,7 @@ input[type="submit"].primary:hover,
 button.primary:hover,
 input[type="submit"].primary:focus,
 button.primary:focus {
-  background: #004766;
+  filter: brightness(80%); /* 색을 20% 어둡게 */
 }
 input[type="submit"].primary:active,
 button.primary:active {
