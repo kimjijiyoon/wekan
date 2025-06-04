@@ -6,7 +6,8 @@ import { createBucket } from './lib/grid/createBucket';
 import fs from 'fs';
 import path from 'path';
 import { AttachmentStoreStrategyFilesystem, AttachmentStoreStrategyGridFs, AttachmentStoreStrategyS3 } from '/models/lib/attachmentStoreStrategy';
-import FileStoreStrategyFactory, {moveToStorage, rename, STORAGE_NAME_FILESYSTEM, STORAGE_NAME_GRIDFS, STORAGE_NAME_S3} from '/models/lib/fileStoreStrategy';
+import FileStoreStrategyFactory, { moveToStorage, rename, STORAGE_NAME_FILESYSTEM, STORAGE_NAME_GRIDFS, STORAGE_NAME_S3 } from '/models/lib/fileStoreStrategy';
+import { GridFSFiles } from 'meteor/ostrio:files';
 
 let attachmentUploadExternalProgram;
 let attachmentUploadMimeTypes = [];
@@ -26,7 +27,7 @@ if (Meteor.isServer) {
     attachmentUploadSize = parseInt(process.env.ATTACHMENTS_UPLOAD_MAX_SIZE);
 
     if (isNaN(attachmentUploadSize)) {
-      attachmentUploadSize = 0
+      attachmentUploadSize = 0;
     }
   }
 
@@ -38,8 +39,11 @@ if (Meteor.isServer) {
     }
   }
 
-  storagePath = path.join(process.env.WRITABLE_PATH, 'attachments');
+  // Add a fallback default path if WRITABLE_PATH is not defined
+  const writablePath = process.env.WRITABLE_PATH || '/default/path/to/writable';
+  storagePath = path.join(writablePath, 'attachments');
 }
+
 
 export const fileStoreStrategyFactory = new FileStoreStrategyFactory(AttachmentStoreStrategyFilesystem, storagePath, AttachmentStoreStrategyGridFs, attachmentBucket);
 
@@ -87,32 +91,68 @@ Attachments = new FilesCollection({
     return str;
   },
   storagePath() {
-    const ret = fileStoreStrategyFactory.storagePath;
-    return ret;
+    return fileStoreStrategyFactory.storagePath;
   },
   onAfterUpload(fileObj) {
-    // current storage is the filesystem, update object and database
-    Object.keys(fileObj.versions).forEach(versionName => {
-      fileObj.versions[versionName].storage = STORAGE_NAME_FILESYSTEM;
-    });
-
     this._now = new Date();
-    Attachments.update({ _id: fileObj._id }, { $set: { "versions" : fileObj.versions } });
-    Attachments.update({ _id: fileObj.uploadedAtOstrio }, { $set: { "uploadedAtOstrio" : this._now } });
+    Attachments.update({ _id: fileObj._id }, { $set: { "versions": fileObj.versions } });
+    Attachments.update({ _id: fileObj.uploadedAtOstrio }, { $set: { "uploadedAtOstrio": this._now } });
 
-    let storageDestination = fileObj.meta.copyStorage || STORAGE_NAME_GRIDFS;
-    Meteor.defer(() => Meteor.call('validateAttachmentAndMoveToStorage', fileObj._id, storageDestination));
+    // 파일 유효성 검사 후 GridFS로 이동
+    if (Meteor.isServer) {
+      Meteor.defer(() => {
+        try {
+          const isValid = Promise.await(isFileValid(fileObj, attachmentUploadMimeTypes, attachmentUploadSize, attachmentUploadExternalProgram));
+          if (isValid) {
+            // 파일을 GridFS로 이동
+            const fileData = fileObj.versions.original.data;
+            if (fileData) {
+              const gridFsFile = GridFSFiles.insert({
+                _id: fileObj._id,
+                filename: fileObj.name,
+                contentType: fileObj.type,
+                length: fileObj.size,
+                metadata: {
+                  boardId: fileObj.meta.boardId,
+                  cardId: fileObj.meta.cardId,
+                  originalAttachmentId: fileObj._id
+                }
+              }, fileData);
+
+              if (gridFsFile) {
+                Attachments.update(fileObj._id, {
+                  $set: {
+                    'meta.gridFsFileId': gridFsFile._id,
+                    'meta.storageStrategy': 'gridfs'
+                  }
+                });
+              }
+            }
+          } else {
+            Attachments.remove(fileObj._id);
+          }
+        } catch (error) {
+          console.error('파일 처리 중 오류 발생:', error);
+        }
+      });
+    }
   },
   interceptDownload(http, fileObj, versionName) {
     const ret = fileStoreStrategyFactory.getFileStrategy(fileObj, versionName).interceptDownload(http, this.cacheControl);
     return ret;
   },
   onAfterRemove(files) {
-    files.forEach(fileObj => {
-      Object.keys(fileObj.versions).forEach(versionName => {
-        fileStoreStrategyFactory.getFileStrategy(fileObj, versionName).onAfterRemove();
+    if (Meteor.isServer) {
+      files.forEach(fileObj => {
+        try {
+          if (fileObj.meta && fileObj.meta.gridFsFileId) {
+            GridFSFiles.remove({ _id: fileObj.meta.gridFsFileId });
+          }
+        } catch (error) {
+          console.error('GridFS 파일 삭제 실패:', error);
+        }
       });
-    });
+    }
   },
   // We authorize the attachment download either:
   // - if the board is public, everyone (even unconnected) can download it
@@ -187,12 +227,19 @@ if (Meteor.isServer) {
 
   Meteor.startup(() => {
     Attachments.collection.createIndex({ 'meta.cardId': 1 });
+
     const storagePath = fileStoreStrategyFactory.storagePath;
+    if (!storagePath) {
+      console.error('Storage path is undefined. Check your environment variables.');
+      return;
+    }
+
     if (!fs.existsSync(storagePath)) {
-      console.log("create storagePath because it doesn't exist: " + storagePath);
+      console.log("Creating storagePath because it doesn't exist: " + storagePath);
       fs.mkdirSync(storagePath, { recursive: true });
     }
   });
+
 }
 
 export default Attachments;

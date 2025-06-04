@@ -290,6 +290,10 @@ services:
       #-AVATARS_UPLOAD_MIME_TYPES=image/*
       #-AVATARS_UPLOAD_MAX_SIZE=500000
       #---------------------------------------------------------------
+      # ==== File Storage Settings ====
+      - ATTACHMENTS_STORE_STRATEGY=gridfs
+      - AVATARS_STORE_STRATEGY=gridfs
+      #---------------------------------------------------------------
       # ==== Allow to shrink attached/pasted image ====
       # https://github.com/wekan/wekan/pull/2544
       #- MAX_IMAGE_PIXEL=1024
