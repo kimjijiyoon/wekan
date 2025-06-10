@@ -36,31 +36,50 @@ export default class FileStoreStrategyFactory {
    * @param use this storage, or if not set, get the storage from fileObj
    */
   getFileStrategy(fileObj, versionName, storage) {
-    if (!storage) {
-      storage = fileObj.versions[versionName].storage;
-      if (!storage) {
-        if (fileObj.meta.source == "import" || fileObj.versions[versionName].meta.gridFsFileId) {
-          // uploaded by import, so it's in GridFS (MongoDB)
-          storage = STORAGE_NAME_GRIDFS;
-        } else if (fileObj && fileObj.versions && fileObj.versions[version] && fileObj.versions[version].meta && fileObj.versions[version].meta.pipePath) {
-          storage = STORAGE_NAME_S3;
-        } else {
-          // newly uploaded, so it's at the filesystem
-          storage = STORAGE_NAME_FILESYSTEM;
+    // if (!storage) {
+    //   storage = fileObj.versions[versionName].storage;
+    //   if (!storage) {
+    //     if (fileObj.meta.source == "import" || fileObj.versions[versionName].meta.gridFsFileId) {
+    //       // uploaded by import, so it's in GridFS (MongoDB)
+    //       storage = STORAGE_NAME_GRIDFS;
+    //     } else if (fileObj && fileObj.versions && fileObj.versions[version] && fileObj.versions[version].meta && fileObj.versions[version].meta.pipePath) {
+    //       storage = STORAGE_NAME_S3;
+    //     } else {
+    //       // newly uploaded, so it's at the filesystem
+    //       storage = STORAGE_NAME_FILESYSTEM;
+    //     }
+    //   }
+    // }
+    // let ret;
+    // if ([STORAGE_NAME_FILESYSTEM, STORAGE_NAME_GRIDFS, STORAGE_NAME_S3].includes(storage)) {
+    //   if (storage == STORAGE_NAME_FILESYSTEM) {
+    //     ret = new this.classFileStoreStrategyFilesystem(fileObj, versionName);
+    //   } else if (storage == STORAGE_NAME_S3) {
+    //     ret = new this.classFileStoreStrategyS3(this.s3Bucket, fileObj, versionName);
+    //   } else if (storage == STORAGE_NAME_GRIDFS) {
+    //     ret = new this.classFileStoreStrategyGridFs(this.gridFsBucket, fileObj, versionName);
+    //   }
+    // }
+    //return ret;
+    if (!fileObj || !fileObj.meta) {
+      throw new Meteor.Error('invalid-file', '유효하지 않은 파일 객체입니다.');
+    }
+
+    const storageStrategy = fileObj.meta.storageStrategy || STORAGE_NAME_FILESYSTEM;
+    const gridFsFileId = fileObj.meta.gridFsFileId;
+
+    switch (storageStrategy) {
+      case STORAGE_NAME_GRIDFS:
+        if (!gridFsFileId) {
+          // GridFS ID가 없는 경우 파일시스템으로 폴백
+          return new this.classFileStoreStrategyFilesystem(fileObj, versionName);
         }
-      }
+        return new this.classFileStoreStrategyGridFs(this.gridFsBucket, fileObj, versionName);
+      case STORAGE_NAME_S3:
+        return new this.classFileStoreStrategyS3(this.s3Bucket, fileObj, versionName);
+      default:
+        return new this.classFileStoreStrategyFilesystem(fileObj, versionName);
     }
-    let ret;
-    if ([STORAGE_NAME_FILESYSTEM, STORAGE_NAME_GRIDFS, STORAGE_NAME_S3].includes(storage)) {
-      if (storage == STORAGE_NAME_FILESYSTEM) {
-        ret = new this.classFileStoreStrategyFilesystem(fileObj, versionName);
-      } else if (storage == STORAGE_NAME_S3) {
-        ret = new this.classFileStoreStrategyS3(this.s3Bucket, fileObj, versionName);
-      } else if (storage == STORAGE_NAME_GRIDFS) {
-        ret = new this.classFileStoreStrategyGridFs(this.gridFsBucket, fileObj, versionName);
-      }
-    }
-    return ret;
   }
 }
 

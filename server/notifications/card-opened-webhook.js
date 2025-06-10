@@ -2,6 +2,7 @@ import { Mongo } from 'meteor/mongo';
 import { HTTP } from 'meteor/http';
 import { ReactiveCache } from '/imports/reactiveCache';
 import { TAPi18n } from '/imports/i18n';
+import fs from 'fs';
 
 if (Meteor.isServer) {
   Meteor.startup(() => {
@@ -167,10 +168,27 @@ if (Meteor.isServer) {
               const webhookUrl = integration ? integration.url : null;
 
               if (webhookUrl) {
+                // customFields 데이터 수집 과정 디버깅
+                console.log('[카드 데이터]', {
+                  cardId: card._id,
+                  hasCustomFields: !!card.customFields,
+                  customFields: JSON.stringify(card.customFields, null, 2)
+                });
+
                 const customFieldsData = {};
                 if (card.customFields) {
                   card.customFields.forEach(field => {
+                    console.log('[커스텀 필드 처리]', {
+                      fieldId: field._id,
+                      fieldValue: Array.isArray(field.value) ?
+                       JSON.stringify(field.value, null) : field.value  // 배열인 경우 JSON으로 변환
+                    });
+
                     const definition = ReactiveCache.getCustomField(field._id);
+                    console.log('[커스텀 필드 정의]', {
+                      fieldId: field._id,
+                      definition: definition
+                    });
 
                     if (definition) {
                       customFieldsData[definition.name] = Array.isArray(field.value) ?
@@ -191,27 +209,117 @@ if (Meteor.isServer) {
                     labels: labels.length > 0 ? labels : null,
                     user: userName || null,
                     customFields: Object.keys(customFieldsData).length > 0 ?
-                      JSON.parse(JSON.stringify(customFieldsData)) : null,  // 깊은 복사를 통해 전체 데이터 유지
-                    members: members.length > 0 ? members : null,       // members 추가
-                    assignees: assignees.length > 0 ? assignees : null,  // assignees 추가
+                      JSON.parse(JSON.stringify(customFieldsData)) : null,
+                    members: members.length > 0 ? members : null,
+                    assignees: assignees.length > 0 ? assignees : null,
                     dates: {
                       received: card.receivedAt || null,
                       start: card.startAt || null,
                       due: card.dueAt || null,
                       end: card.endAt || null
-                    }
+                    },
+                    attachments: []  // 첨부파일 배열 추가
                   },
                 };
 
-                console.log(`[디버깅] 웹훅으로 전송할 데이터:`, payload);
+                // 첨부파일 정보 수집
+                const attachments = Attachments.find({ 'meta.cardId': card._id }).fetch();
+                if (attachments && attachments.length > 0) {
+                  // 모든 첨부파일의 데이터를 수집하는 Promise 배열 생성
+                  const attachmentPromises = attachments.map(attachment => {
+                    return new Promise((resolve, reject) => {
+                      const attachmentInfo = {
+                        id: attachment._id,
+                        name: attachment.name,
+                        type: attachment.type,
+                        size: attachment.size,
+                        uploadedAt: attachment.uploadedAt,
+                        storageStrategy: attachment.meta.storageStrategy || 'filesystem',
+                        url: null,
+                        data: null
+                      };
 
-                HTTP.post(webhookUrl, { data: payload }, (err, res) => {
-                  if (err) {
-                    console.error(`[Webhook 실패] 카드(${id}):`, err);
-                  } else {
-                    console.log(`[Webhook 성공] 카드(${id}):`, res);
-                  }
-                });
+                      // GridFS에 저장된 파일인 경우
+                      if (attachment.meta.storageStrategy === 'gridfs' && attachment.meta.gridFsFileId) {
+                        attachmentInfo.gridFsFileId = attachment.meta.gridFsFileId;
+                      }
+
+                      try {
+                        // URL 생성
+                        const fileUrl = Attachments.findOne(attachment._id).link();
+                        if (fileUrl) {
+                          attachmentInfo.url = fileUrl;
+                        }
+
+                        // 파일 데이터 읽기
+                        const fileObj = Attachments.findOne(attachment._id);
+                        if (fileObj) {
+                          try {
+                            // 파일 시스템에서 직접 파일 읽기
+                            const filePath = fileObj.versions.original.path;
+                            if (filePath) {
+                              const fileData = fs.readFileSync(filePath);
+                              attachmentInfo.data = fileData.toString('base64');
+                            } else {
+                              console.error(`[경고] 파일 경로를 찾을 수 없음: ${attachment._id}`);
+                            }
+                          } catch (error) {
+                            console.error(`[파일 읽기 실패] ${attachment._id}:`, error);
+                          }
+                          resolve(attachmentInfo);
+                        } else {
+                          resolve(attachmentInfo); // 파일 객체를 찾을 수 없는 경우 기본 정보만 전송
+                        }
+                      } catch (error) {
+                        console.error(`[첨부파일 처리 실패] ${attachment._id}:`, error);
+                        resolve(attachmentInfo); // 에러가 발생해도 기본 정보는 전송
+                      }
+                    });
+                  });
+
+                  // 모든 첨부파일의 데이터 수집이 완료될 때까지 대기
+                  Promise.all(attachmentPromises)
+                    .then(attachmentData => {
+                      payload.card.attachments = attachmentData;
+
+                      console.log(`[디버깅] 웹훅으로 전송할 데이터:`, payload);
+
+                      // 웹훅 전송
+                      HTTP.post(webhookUrl, {
+                        data: payload,
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'X-File-Transfer': 'binary'
+                        }
+                      }, (err, res) => {
+                        if (err) {
+                          console.error(`[Webhook 실패] 카드(${id}):`, err);
+                        } else {
+                          console.log(`[Webhook 성공] 카드(${id}):`, res);
+                        }
+                      });
+                    })
+                    .catch(error => {
+                      console.error(`[첨부파일 처리 실패] 카드(${id}):`, error);
+                    });
+                } else {
+                  // 첨부파일이 없는 경우 바로 웹훅 전송
+                  console.log(`[디버깅] 웹훅으로 전송할 데이터:`, payload);
+
+                  HTTP.post(webhookUrl, {
+                    data: payload,
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'X-File-Transfer': 'binary'
+                    }
+                  }, (err, res) => {
+                    if (err) {
+                      console.error(`[Webhook 실패] 카드(${id}):`, err);
+                    } else {
+                      console.log(`[Webhook 성공] 카드(${id}):`, res);
+                    }
+                  });
+                }
               } else {
                 console.warn(`[경고] 보드(${card.boardId})의 웹훅 URL을 찾을 수 없습니다.`);
               }
