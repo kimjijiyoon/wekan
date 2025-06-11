@@ -22,7 +22,7 @@ template(name="cardAttachmentsPopup")
         a.js-upload-clipboard-image {{_ 'clipboard'}}
 
 template(name="previewClipboardImagePopup")
-  p <kbd>Ctrl</kbd>+<kbd>V</kbd> {{_ "paste-or-dragdrop"}}
+  p {{_ "paste-or-dragdrop"}}
   .preview-files-container
     each file in pastedFiles
       .preview-file-item
