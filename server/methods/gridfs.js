@@ -5,6 +5,7 @@ import { FilesCollection } from 'meteor/ostrio:files';
 import { fileStoreStrategyFactory } from '/models/attachments';
 import { STORAGE_NAME_GRIDFS } from '/models/lib/fileStoreStrategy';
 import { ReactiveCache } from '/imports/reactiveCache';
+import { EJSON } from 'meteor/ejson';
 
 // GridFS 버킷 생성
 const GridFSFiles = new FilesCollection({
@@ -234,7 +235,7 @@ Meteor.methods({
 
   // 텍스트 기반 파일 업로드
   uploadFileAsText(fileData, fileName, fileType) {
-    check(fileData, Match.OneOf(Object, String, Buffer));
+    check(fileData, Match.OneOf(Object, String, Buffer, Uint8Array, Array));
     check(fileName, String);
     check(fileType, String);
 
@@ -244,12 +245,30 @@ Meteor.methods({
     }
 
     try {
+      // 파일 데이터를 Buffer로 변환
+      let buffer;
+      if (Buffer.isBuffer(fileData)) {
+        buffer = fileData;
+      } else if (Array.isArray(fileData)) {
+        buffer = Buffer.from(fileData);
+      } else if (typeof fileData === 'string') {
+        buffer = Buffer.from(fileData);
+      } else if (fileData instanceof Uint8Array) {
+        buffer = Buffer.from(fileData);
+      } else if (typeof fileData === 'object') {
+        // EJSON으로 직렬화된 데이터 처리
+        const data = EJSON.parse(EJSON.stringify(fileData));
+        buffer = Buffer.from(data);
+      } else {
+        throw new Meteor.Error('invalid-data', '지원하지 않는 파일 데이터 형식입니다.');
+      }
+
       // 파일 객체 생성
       const fileObj = {
         _id: new Meteor.Collection.ObjectID().toString(),
         filename: fileName,
         contentType: fileType,
-        length: fileData.length,
+        length: buffer.length,
         metadata: {
           userId: userId,
           uploadMethod: 'text',
@@ -258,7 +277,7 @@ Meteor.methods({
       };
 
       // GridFS에 저장
-      const result = GridFSFiles.insert(fileObj, fileData);
+      const result = GridFSFiles.insert(fileObj, buffer);
       if (!result) {
         throw new Meteor.Error('upload-failed', '파일 저장에 실패했습니다.');
       }
