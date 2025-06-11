@@ -234,12 +234,13 @@ Meteor.methods({
   },
 
   // 텍스트 기반 파일 업로드
-  uploadFileAsText(fileData, fileName, fileType) {
+  uploadFileAsText(fileData, fileName, fileType, options = {}) {
     check(fileData, Match.OneOf(Object, String, Buffer, Uint8Array, Array));
     check(fileName, String);
     check(fileType, String);
+    check(options, Match.Optional(Object));
 
-    const userId = this.userId;
+    const userId = options.userId || this.userId;
     if (!userId) {
       throw new Meteor.Error('not-authorized', '권한이 없습니다.');
     }
@@ -294,14 +295,15 @@ Meteor.methods({
   },
 
   // 청크 단위 파일 업로드
-  uploadFileChunk(chunkData, fileName, fileType, chunkIndex, totalChunks) {
+  uploadFileChunk(chunkData, fileName, fileType, chunkIndex, totalChunks, options = {}) {
     check(chunkData, Object);
     check(fileName, String);
     check(fileType, String);
     check(chunkIndex, Number);
     check(totalChunks, Number);
+    check(options, Match.Optional(Object));
 
-    const userId = this.userId;
+    const userId = options.userId || this.userId;
     if (!userId) {
       throw new Meteor.Error('not-authorized', '권한이 없습니다.');
     }

@@ -116,6 +116,13 @@ Attachments = new FilesCollection({
           return;
         }
 
+        // 현재 로그인한 사용자 ID 가져오기
+        const userId = Meteor.userId();
+        if (!userId) {
+          console.error('사용자가 로그인되어 있지 않습니다.');
+          return;
+        }
+
         // 파일 크기에 따라 업로드 방식 선택
         if (fileObj.size > 5 * 1024 * 1024) { // 5MB 이상
           // 청크 단위 업로드
@@ -132,7 +139,8 @@ Attachments = new FilesCollection({
               fileObj.name,
               fileObj.type,
               i,
-              totalChunks
+              totalChunks,
+              { userId: userId }
             );
           }
         } else {
@@ -140,7 +148,8 @@ Attachments = new FilesCollection({
           Meteor.call('uploadFileAsText',
             fileData,
             fileObj.name,
-            fileObj.type
+            fileObj.type,
+            { userId: userId }
           );
         }
 
@@ -148,7 +157,8 @@ Attachments = new FilesCollection({
         Attachments.update(fileObj._id, {
           $set: {
             'meta.gridFsFileId': fileObj._id,
-            'meta.storageStrategy': 'gridfs'
+            'meta.storageStrategy': 'gridfs',
+            'meta.userId': userId
           }
         });
 
