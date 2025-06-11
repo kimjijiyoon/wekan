@@ -547,7 +547,7 @@
   "page-maybe-private": "This page may be private. You may be able to view it by <a href='%s'>logging in</a>.",
   "page-not-found": "Η σελίδα δεν βρέθηκε.",
   "password": "Κωδικός",
-  "paste-or-dragdrop": "to paste, or drag & drop image file to it (image only)",
+  "paste-or-dragdrop": "drag & drop file to it (image or file)",
   "participating": "Συμμετέχει",
   "preview": "Προεπισκόπηση",
   "previewAttachedImagePopup-title": "Προεπισκόπηση",

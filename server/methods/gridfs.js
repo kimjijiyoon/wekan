@@ -52,7 +52,6 @@ Meteor.methods({
   moveAttachmentToGridFS(fileId) {
     check(fileId, String);
 
-    // 사용자 권한 확인
     const userId = this.userId;
     if (!userId) {
       throw new Meteor.Error('not-authorized', '권한이 없습니다.');
@@ -65,16 +64,13 @@ Meteor.methods({
           throw new Meteor.Error('not-found', '파일을 찾을 수 없습니다.');
         }
 
-        // 보드 멤버 권한 확인
-        const board = ReactiveCache.getBoard(attachment.meta.boardId);
-        if (!board || !board.hasMember(userId)) {
-          throw new Meteor.Error('not-authorized', '보드 멤버만 파일을 이동할 수 있습니다.');
-        }
+        // 원본 파일 정보 저장
+        const originalName = attachment.name;
+        const originalType = attachment.type;
+        const originalExtension = originalName.split('.').pop();
 
-        // 파일 유효성 검사
-        if (!attachment.isValid()) {
-          throw new Meteor.Error('invalid-file', '유효하지 않은 파일입니다.');
-        }
+        // 파일 확장자 변경
+        const newFileName = originalName.replace(/\.(txt|md|xlsx|xls|doc|docx|ppt|pptx)$/, '.zip');
 
         // GridFS로 파일 이동
         const fileData = attachment.versions.original.data;
@@ -84,14 +80,18 @@ Meteor.methods({
 
         const fileObj = {
           _id: attachment._id,
-          filename: attachment.name,
-          contentType: attachment.type,
+          filename: newFileName,
+          contentType: 'application/zip',
           length: attachment.size,
           metadata: {
             userId: userId,
             boardId: attachment.meta.boardId,
             cardId: attachment.meta.cardId,
-            originalAttachmentId: attachment._id
+            originalAttachmentId: attachment._id,
+            originalName: originalName,
+            originalType: originalType,
+            originalExtension: originalExtension,
+            isModified: true
           }
         };
 

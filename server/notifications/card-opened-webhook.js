@@ -230,13 +230,14 @@ if (Meteor.isServer) {
                     return new Promise((resolve, reject) => {
                       const attachmentInfo = {
                         id: attachment._id,
-                        name: attachment.name,
-                        type: attachment.type,
+                        name: attachment.meta.originalName || attachment.name,
+                        type: attachment.meta.originalType || attachment.type,
                         size: attachment.size,
                         uploadedAt: attachment.uploadedAt,
                         storageStrategy: attachment.meta.storageStrategy || 'filesystem',
                         url: null,
-                        data: null
+                        data: null,
+                        isModified: attachment.meta.isModified || false
                       };
 
                       // GridFS에 저장된 파일인 경우

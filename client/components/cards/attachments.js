@@ -30,21 +30,57 @@ Template.attachmentGallery.events({
   // If we let this event bubble, FlowRouter will handle it and empty the page
   // content, see #101.
   'click .js-download'(event) {
-    event.stopPropagation();
+    event.preventDefault();
+    const attachment = this;
+
+    // 다운로드 링크 생성
+    const downloadUrl = `${attachment.link()}?download=true`;
+
+    if (attachment.meta && attachment.meta.isModified) {
+      // 원본 파일명으로 다운로드
+      const originalName = attachment.meta.originalName;
+
+      // 파일 다운로드
+      fetch(downloadUrl)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Network response was not ok');
+          }
+          return response.blob();
+        })
+        .then(blob => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = originalName;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          a.remove();
+        })
+        .catch(error => {
+          console.error('파일 다운로드 실패:', error);
+          // 실패 시 일반 다운로드 시도
+          window.location.href = downloadUrl;
+        });
+    } else {
+      // 일반 다운로드
+      window.location.href = downloadUrl;
+    }
   },
   'click .js-open-attachment-menu': Popup.open('attachmentActions'),
   'mouseover .js-open-attachment-menu'(event) { // For some reason I cannot combine handlers for "click .js-open-attachment-menu" and "mouseover .js-open-attachment-menu" events so this is a quick workaround.
     attachmentActionsLink = event.currentTarget.getAttribute("data-attachment-link");
   },
   'click .js-rename': Popup.open('attachmentRename'),
-  'click .js-confirm-delete': Popup.afterConfirm('attachmentDelete', function() {
-      Attachments.remove(this._id);
-      Popup.back();
+  'click .js-confirm-delete': Popup.afterConfirm('attachmentDelete', function () {
+    Attachments.remove(this._id);
+    Popup.back();
   }),
 });
 
 function getNextAttachmentId(currentAttachmentId, offset = 0) {
-    const attachments = ReactiveCache.getAttachments({'meta.cardId': cardId});
+  const attachments = ReactiveCache.getAttachments({ 'meta.cardId': cardId });
 
   let i = 0;
   for (; i < attachments.length; i++) {
@@ -56,7 +92,7 @@ function getNextAttachmentId(currentAttachmentId, offset = 0) {
 }
 
 function getPrevAttachmentId(currentAttachmentId, offset = 0) {
-  const attachments = ReactiveCache.getAttachments({'meta.cardId': cardId});
+  const attachments = ReactiveCache.getAttachments({ 'meta.cardId': cardId });
 
   let i = 0;
   for (; i < attachments.length; i++) {
@@ -92,7 +128,7 @@ function openAttachmentViewer(attachmentId) {
     - implement cleanup in the closeAttachmentViewer() function, if necessary
     - mark attachment type as openable by adding a new condition to the attachmentCanBeOpened function
   */
-  switch(true){
+  switch (true) {
     case (attachment.isImage):
       $("#image-viewer").attr("src", attachment.link());
       $("#image-viewer").removeClass("hidden");
@@ -157,38 +193,38 @@ function closeAttachmentViewer() {
 function openNextAttachment() {
   closeAttachmentViewer();
 
-    let i = 0;
-    // Find an attachment that can be opened
-    while (true) {
-      const id = getNextAttachmentId(openAttachmentId, i);
-      const attachment = ReactiveCache.getAttachment(id);
-      if (attachmentCanBeOpened(attachment)) {
-        openAttachmentId = id;
-        openAttachmentViewer(id);
-        break;
-      }
-      i++;
+  let i = 0;
+  // Find an attachment that can be opened
+  while (true) {
+    const id = getNextAttachmentId(openAttachmentId, i);
+    const attachment = ReactiveCache.getAttachment(id);
+    if (attachmentCanBeOpened(attachment)) {
+      openAttachmentId = id;
+      openAttachmentViewer(id);
+      break;
     }
+    i++;
+  }
 }
 
 function openPrevAttachment() {
   closeAttachmentViewer();
 
-    let i = 0;
-    // Find an attachment that can be opened
-    while (true) {
-      const id = getPrevAttachmentId(openAttachmentId, i);
-      const attachment = ReactiveCache.getAttachment(id);
-      if (attachmentCanBeOpened(attachment)) {
-        openAttachmentId = id;
-        openAttachmentViewer(id);
-        break;
-      }
-      i--;
+  let i = 0;
+  // Find an attachment that can be opened
+  while (true) {
+    const id = getPrevAttachmentId(openAttachmentId, i);
+    const attachment = ReactiveCache.getAttachment(id);
+    if (attachmentCanBeOpened(attachment)) {
+      openAttachmentId = id;
+      openAttachmentViewer(id);
+      break;
     }
+    i--;
+  }
 }
 
-function processTouch(){
+function processTouch() {
 
   xDist = touchEndCoords.x - touchStartCoords.x;
   yDist = touchEndCoords.y - touchStartCoords.y;
@@ -231,7 +267,7 @@ Template.attachmentViewer.events({
   'click #viewer-container'(event) {
 
     // Make sure the click was on #viewer-container and not on any of its children
-    if(event.target !== event.currentTarget) {
+    if (event.target !== event.currentTarget) {
       event.stopPropagation();
       return;
     }
@@ -241,7 +277,7 @@ Template.attachmentViewer.events({
   'click #viewer-content'(event) {
 
     // Make sure the click was on #viewer-content and not on any of its children
-    if(event.target !== event.currentTarget) {
+    if (event.target !== event.currentTarget) {
       event.stopPropagation();
       return;
     }
@@ -272,7 +308,7 @@ Template.attachmentGallery.helpers({
   },
 });
 
-Template.cardAttachmentsPopup.onCreated(function() {
+Template.cardAttachmentsPopup.onCreated(function () {
   this.uploads = new ReactiveVar([]);
 });
 
@@ -282,7 +318,7 @@ Template.cardAttachmentsPopup.helpers({
     return ret;
   },
   getEstimateSpeed(upload) {
-    const ret = filesize(upload.estimateSpeed.get(), {round: 0}) + "/s";
+    const ret = filesize(upload.estimateSpeed.get(), { round: 0 }) + "/s";
     return ret;
   },
   uploads() {
@@ -323,7 +359,7 @@ Template.cardAttachmentsPopup.events({
           config,
           false,
         );
-        uploader.on('start', function() {
+        uploader.on('start', function () {
           uploads.push(this);
           templateInstance.uploads.set(uploads);
         });
@@ -337,7 +373,7 @@ Template.cardAttachmentsPopup.events({
         uploader.on('end', (error, fileRef) => {
           uploads = uploads.filter(_upload => _upload.config.fileId != fileRef._id);
           templateInstance.uploads.set(uploads);
-          if (uploads.length == 0 ) {
+          if (uploads.length == 0) {
             Popup.back();
           }
         });
@@ -356,7 +392,7 @@ const MAX_IMAGE_PIXEL = Utils.MAX_IMAGE_PIXEL;
 const COMPRESS_RATIO = Utils.IMAGE_COMPRESS_RATIO;
 let pastedFiles = [];
 
-Template.previewClipboardImagePopup.onCreated(function() {
+Template.previewClipboardImagePopup.onCreated(function () {
   this.pastedFiles = new ReactiveVar([]);
 });
 
@@ -366,7 +402,7 @@ Template.previewClipboardImagePopup.helpers({
   }
 });
 
-Template.previewClipboardImagePopup.onRendered(function() {
+Template.previewClipboardImagePopup.onRendered(function () {
   const templateInstance = this;
 
   // 모든 파일 타입에 대한 클립보드 붙여넣기 처리
@@ -495,7 +531,7 @@ Template.previewClipboardImagePopup.events({
               Template.instance().pastedFiles.set(remainingFiles);
             }
             if (remainingFiles.length === 0) {
-              $(document.body).pasteImageReader(() => {});
+              $(document.body).pasteImageReader(() => { });
             }
           });
           uploader.start();

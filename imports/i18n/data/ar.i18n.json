@@ -547,7 +547,7 @@
   "page-maybe-private": "قدتكون هذه الصفحة خاصة . قد تستطيع مشاهدتها ب  <a href='%s'>تسجيل الدخول</a>.",
   "page-not-found": "صفحة غير موجودة",
   "password": "كلمة المرور",
-  "paste-or-dragdrop": "to paste, or drag & drop image file to it (image only)",
+  "paste-or-dragdrop": "drag & drop file to it (image or file)",
   "participating": "المشاركة",
   "preview": "Preview",
   "previewAttachedImagePopup-title": "Preview",

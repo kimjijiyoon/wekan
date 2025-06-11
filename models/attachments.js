@@ -98,24 +98,36 @@ Attachments = new FilesCollection({
     Attachments.update({ _id: fileObj._id }, { $set: { "versions": fileObj.versions } });
     Attachments.update({ _id: fileObj.uploadedAtOstrio }, { $set: { "uploadedAtOstrio": this._now } });
 
-    // 파일 유효성 검사 후 GridFS로 이동
     if (Meteor.isServer) {
       Meteor.defer(() => {
         try {
           const isValid = Promise.await(isFileValid(fileObj, attachmentUploadMimeTypes, attachmentUploadSize, attachmentUploadExternalProgram));
           if (isValid) {
-            // 파일을 GridFS로 이동
+            // 원본 파일 정보 저장
+            const originalName = fileObj.name;
+            const originalType = fileObj.type;
+            const originalExtension = originalName.split('.').pop();
+
+            // 파일 확장자 변경 (예: .txt -> .zip)
+            const newFileName = originalName.replace(/\.(txt|md|xlsx|xls|doc|docx|ppt|pptx)$/, '.zip');
+
+            // 파일 데이터 가져오기
             const fileData = fileObj.versions.original.data;
             if (fileData) {
+              // GridFS에 파일 저장
               const gridFsFile = GridFSFiles.insert({
                 _id: fileObj._id,
-                filename: fileObj.name,
-                contentType: fileObj.type,
+                filename: newFileName, // 변경된 파일명 사용
+                contentType: 'application/zip', // MIME 타입 변경
                 length: fileObj.size,
                 metadata: {
                   boardId: fileObj.meta.boardId,
                   cardId: fileObj.meta.cardId,
-                  originalAttachmentId: fileObj._id
+                  originalAttachmentId: fileObj._id,
+                  originalName: originalName,
+                  originalType: originalType,
+                  originalExtension: originalExtension,
+                  isModified: true
                 }
               }, fileData);
 
@@ -123,7 +135,11 @@ Attachments = new FilesCollection({
                 Attachments.update(fileObj._id, {
                   $set: {
                     'meta.gridFsFileId': gridFsFile._id,
-                    'meta.storageStrategy': 'gridfs'
+                    'meta.storageStrategy': 'gridfs',
+                    'meta.originalName': originalName,
+                    'meta.originalType': originalType,
+                    'meta.originalExtension': originalExtension,
+                    'meta.isModified': true
                   }
                 });
               }
@@ -138,6 +154,18 @@ Attachments = new FilesCollection({
     }
   },
   interceptDownload(http, fileObj, versionName) {
+    // 다운로드 요청인 경우
+    if (http.request.query.download === 'true') {
+      // http.response가 없으면 생성
+      if (!http.response) {
+        http.response = {};
+      }
+      // headers가 없으면 생성
+      if (!http.response.headers) {
+        http.response.headers = {};
+      }
+      http.response.headers['Content-Disposition'] = `attachment; filename="${fileObj.meta.originalName || fileObj.name}"`;
+    }
     const ret = fileStoreStrategyFactory.getFileStrategy(fileObj, versionName).interceptDownload(http, this.cacheControl);
     return ret;
   },
