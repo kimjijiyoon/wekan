@@ -15,15 +15,23 @@ template(name="cardAttachmentsPopup")
             td.upload-speed-value {{getEstimateSpeed upload}}
   else
     ul.pop-over-list
-      li
-        input.js-attach-file.hide(type="file" name="file" multiple)
-        a.js-computer-upload {{_ 'computer'}}
+      //- li
+      //-   input.js-attach-file.hide(type="file" name="file" multiple)
+      //-   a.js-computer-upload {{_ 'computer'}}
       li
         a.js-upload-clipboard-image {{_ 'clipboard'}}
 
 template(name="previewClipboardImagePopup")
   p <kbd>Ctrl</kbd>+<kbd>V</kbd> {{_ "paste-or-dragdrop"}}
-  img.preview-clipboard-image()
+  .preview-files-container
+    each file in pastedFiles
+      .preview-file-item
+        if file.isImage
+          img.preview-clipboard-image(src="{{file.dataURL}}")
+        else
+          .preview-file-icon
+            i.fa.fa-file
+            span.file-name {{file.file.name}}
   button.primary.js-upload-pasted-image {{_ 'upload'}}
 
 template(name="attachmentDeletePopup")

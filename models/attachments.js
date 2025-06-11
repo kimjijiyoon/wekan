@@ -6,7 +6,7 @@ import { createBucket } from './lib/grid/createBucket';
 import fs from 'fs';
 import path from 'path';
 import { AttachmentStoreStrategyFilesystem, AttachmentStoreStrategyGridFs, AttachmentStoreStrategyS3 } from '/models/lib/attachmentStoreStrategy';
-import FileStoreStrategyFactory, {moveToStorage, rename, STORAGE_NAME_FILESYSTEM, STORAGE_NAME_GRIDFS, STORAGE_NAME_S3} from '/models/lib/fileStoreStrategy';
+import FileStoreStrategyFactory, { moveToStorage, rename, STORAGE_NAME_FILESYSTEM, STORAGE_NAME_GRIDFS, STORAGE_NAME_S3 } from '/models/lib/fileStoreStrategy';
 import { GridFSFiles } from 'meteor/ostrio:files';
 
 let attachmentUploadExternalProgram;
@@ -94,81 +94,47 @@ Attachments = new FilesCollection({
     return fileStoreStrategyFactory.storagePath;
   },
   onAfterUpload(fileObj) {
+    this._now = new Date();
+    Attachments.update({ _id: fileObj._id }, { $set: { "versions": fileObj.versions } });
+    Attachments.update({ _id: fileObj.uploadedAtOstrio }, { $set: { "uploadedAtOstrio": this._now } });
+
+    // 파일 유효성 검사 후 GridFS로 이동
     if (Meteor.isServer) {
-      try {
-        // 파일 유효성 검사
-        if (!isFileValid(fileObj)) {
-          console.error('유효하지 않은 파일:', fileObj);
-          return;
-        }
+      Meteor.defer(() => {
+        try {
+          const isValid = Promise.await(isFileValid(fileObj, attachmentUploadMimeTypes, attachmentUploadSize, attachmentUploadExternalProgram));
+          if (isValid) {
+            // 파일을 GridFS로 이동
+            const fileData = fileObj.versions.original.data;
+            if (fileData) {
+              const gridFsFile = GridFSFiles.insert({
+                _id: fileObj._id,
+                filename: fileObj.name,
+                contentType: fileObj.type,
+                length: fileObj.size,
+                metadata: {
+                  boardId: fileObj.meta.boardId,
+                  cardId: fileObj.meta.cardId,
+                  originalAttachmentId: fileObj._id
+                }
+              }, fileData);
 
-        // 파일 시스템에서 파일 읽기
-        let fileData;
-        if (fileObj.versions && fileObj.versions.original && fileObj.versions.original.path) {
-          try {
-            fileData = fs.readFileSync(fileObj.versions.original.path);
-          } catch (error) {
-            console.error('파일 읽기 실패:', error);
-            return;
+              if (gridFsFile) {
+                Attachments.update(fileObj._id, {
+                  $set: {
+                    'meta.gridFsFileId': gridFsFile._id,
+                    'meta.storageStrategy': 'gridfs'
+                  }
+                });
+              }
+            }
+          } else {
+            Attachments.remove(fileObj._id);
           }
-        } else {
-          console.error('파일 경로를 찾을 수 없습니다:', fileObj);
-          return;
+        } catch (error) {
+          console.error('파일 처리 중 오류 발생:', error);
         }
-
-        // 현재 로그인한 사용자 ID 가져오기
-        const userId = Meteor.userId();
-        if (!userId) {
-          console.error('사용자가 로그인되어 있지 않습니다.');
-          return;
-        }
-
-        // 파일 크기에 따라 업로드 방식 선택
-        if (fileObj.size > 5 * 1024 * 1024) { // 5MB 이상
-          // 청크 단위 업로드
-          const chunkSize = 1024 * 1024; // 1MB
-          const totalChunks = Math.ceil(fileData.length / chunkSize);
-
-          for (let i = 0; i < totalChunks; i++) {
-            const start = i * chunkSize;
-            const end = Math.min(start + chunkSize, fileData.length);
-            const chunk = fileData.slice(start, end);
-
-            Meteor.call('uploadFileChunk',
-              chunk,
-              fileObj.name,
-              fileObj.type,
-              i,
-              totalChunks,
-              { userId: userId }
-            );
-          }
-        } else {
-          // 작은 파일은 한 번에 업로드
-          Meteor.call('uploadFileAsText',
-            fileData,
-            fileObj.name,
-            fileObj.type,
-            { userId: userId }
-          );
-        }
-
-        // 메타데이터 업데이트
-        Attachments.update(fileObj._id, {
-          $set: {
-            'meta.gridFsFileId': fileObj._id,
-            'meta.storageStrategy': 'gridfs',
-            'meta.userId': userId
-          }
-        });
-
-      } catch (error) {
-        console.error('파일 처리 중 오류 발생:', error);
-        // 실패한 경우 파일 삭제
-        if (fileObj && fileObj._id) {
-          Attachments.remove(fileObj._id);
-        }
-      }
+      });
     }
   },
   interceptDownload(http, fileObj, versionName) {
@@ -259,20 +225,20 @@ if (Meteor.isServer) {
     },
   });
 
- Meteor.startup(() => {
-  Attachments.collection.createIndex({ 'meta.cardId': 1 });
+  Meteor.startup(() => {
+    Attachments.collection.createIndex({ 'meta.cardId': 1 });
 
-  const storagePath = fileStoreStrategyFactory.storagePath;
-  if (!storagePath) {
-    console.error('Storage path is undefined. Check your environment variables.');
-    return;
-  }
+    const storagePath = fileStoreStrategyFactory.storagePath;
+    if (!storagePath) {
+      console.error('Storage path is undefined. Check your environment variables.');
+      return;
+    }
 
-  if (!fs.existsSync(storagePath)) {
-    console.log("Creating storagePath because it doesn't exist: " + storagePath);
-    fs.mkdirSync(storagePath, { recursive: true });
-  }
-});
+    if (!fs.existsSync(storagePath)) {
+      console.log("Creating storagePath because it doesn't exist: " + storagePath);
+      fs.mkdirSync(storagePath, { recursive: true });
+    }
+  });
 
 }
 

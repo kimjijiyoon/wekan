@@ -354,73 +354,153 @@ Template.cardAttachmentsPopup.events({
 
 const MAX_IMAGE_PIXEL = Utils.MAX_IMAGE_PIXEL;
 const COMPRESS_RATIO = Utils.IMAGE_COMPRESS_RATIO;
-let pastedResults = null;
+let pastedFiles = [];
 
-Template.previewClipboardImagePopup.onRendered(() => {
-  // we can paste image from clipboard
+Template.previewClipboardImagePopup.onCreated(function() {
+  this.pastedFiles = new ReactiveVar([]);
+});
+
+Template.previewClipboardImagePopup.helpers({
+  pastedFiles() {
+    return Template.instance().pastedFiles.get();
+  }
+});
+
+Template.previewClipboardImagePopup.onRendered(function() {
+  const templateInstance = this;
+
+  // 모든 파일 타입에 대한 클립보드 붙여넣기 처리
   const handle = results => {
-    if (results.dataURL.startsWith('data:image/')) {
-      const direct = results => {
-        $('img.preview-clipboard-image').attr('src', results.dataURL);
-        pastedResults = results;
+    if (results.dataURL) {
+      const isImage = results.dataURL.startsWith('data:image/');
+      const fileData = {
+        dataURL: results.dataURL,
+        file: results.file,
+        isImage: isImage
       };
-      if (MAX_IMAGE_PIXEL) {
-        // if has size limitation on image we shrink it before uploading
+
+      if (isImage && MAX_IMAGE_PIXEL) {
+        // 이미지인 경우에만 크기 제한 적용
         Utils.shrinkImage({
           dataurl: results.dataURL,
           maxSize: MAX_IMAGE_PIXEL,
           ratio: COMPRESS_RATIO,
           callback(changed) {
             if (changed !== false && !!changed) {
-              results.dataURL = changed;
+              fileData.dataURL = changed;
             }
-            direct(results);
+            const currentFiles = templateInstance.pastedFiles.get();
+            currentFiles.push(fileData);
+            templateInstance.pastedFiles.set(currentFiles);
           },
         });
       } else {
-        direct(results);
+        const currentFiles = templateInstance.pastedFiles.get();
+        currentFiles.push(fileData);
+        templateInstance.pastedFiles.set(currentFiles);
       }
     }
   };
 
+  // 클립보드 붙여넣기 이벤트 처리
   $(document.body).pasteImageReader(handle);
 
-  // we can also drag & drop image file to it
+  // 드래그 앤 드롭 이벤트 처리
   $(document.body).dropImageReader(handle);
+
+  // 일반 파일 드래그 앤 드롭 처리 추가
+  const dropZone = $('.preview-files-container');
+
+  dropZone.on('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.addClass('dragover');
+  });
+
+  dropZone.on('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.removeClass('dragover');
+  });
+
+  dropZone.on('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.removeClass('dragover');
+
+    const files = e.originalEvent.dataTransfer.files;
+    if (files && files.length > 0) {
+      // 여러 파일 처리
+      const uploadPromises = Array.from(files).map(file => {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const results = {
+              dataURL: e.target.result,
+              file: file
+            };
+            resolve(results);
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+
+      // 모든 파일을 병렬로 처리
+      Promise.all(uploadPromises).then(results => {
+        results.forEach(result => {
+          handle(result);
+        });
+      });
+    }
+  });
 });
 
 Template.previewClipboardImagePopup.events({
   'click .js-upload-pasted-image'() {
     const card = this;
-    if (pastedResults && pastedResults.file) {
-      const file = pastedResults.file;
-      window.oPasted = pastedResults;
-      const fileId = new ObjectID().toString();
-      const config = {
-        file,
-        fileId: fileId,
-        meta: Utils.getCommonAttachmentMetaFrom(card),
-        fileName: file.name || file.type.replace('image/', 'clipboard.'),
-        chunkSize: 'dynamic',
-      };
-      config.meta.fileId = fileId;
-      const uploader = Attachments.insert(
-        config,
-        false,
-      );
-      uploader.on('uploaded', (error, fileRef) => {
-        if (!error) {
-          if (fileRef.isImage) {
-            card.setCover(fileRef._id);
-          }
+    const files = Template.instance().pastedFiles.get();
+
+    if (files && files.length > 0) {
+      // 업로드 시작 전에 팝업 닫기
+      Popup.back();
+
+      files.forEach(fileData => {
+        if (fileData && fileData.file) {
+          const file = fileData.file;
+          const fileId = new ObjectID().toString();
+          const config = {
+            file,
+            fileId: fileId,
+            meta: Utils.getCommonAttachmentMetaFrom(card),
+            fileName: file.name || file.type.replace('image/', 'clipboard.'),
+            chunkSize: 'dynamic',
+          };
+          config.meta.fileId = fileId;
+          const uploader = Attachments.insert(
+            config,
+            false,
+          );
+          uploader.on('uploaded', (error, fileRef) => {
+            if (!error) {
+              if (fileRef.isImage) {
+                card.setCover(fileRef._id);
+              }
+            }
+          });
+          uploader.on('end', (error, fileRef) => {
+            const remainingFiles = Template.instance().pastedFiles.get();
+            const index = remainingFiles.findIndex(f => f.file === file);
+            if (index > -1) {
+              remainingFiles.splice(index, 1);
+              Template.instance().pastedFiles.set(remainingFiles);
+            }
+            if (remainingFiles.length === 0) {
+              $(document.body).pasteImageReader(() => {});
+            }
+          });
+          uploader.start();
         }
       });
-      uploader.on('end', (error, fileRef) => {
-        pastedResults = null;
-        $(document.body).pasteImageReader(() => {});
-        Popup.back();
-      });
-      uploader.start();
     }
   },
 });
