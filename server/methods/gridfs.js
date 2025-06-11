@@ -230,5 +230,136 @@ Meteor.methods({
       console.error('GridFS 파일 정보 조회 실패:', error);
       throw new Meteor.Error('get-info-failed', error.message);
     }
+  },
+
+  // 텍스트 기반 파일 업로드
+  uploadFileAsText(fileData, fileName, fileType) {
+    check(fileData, Object);
+    check(fileName, String);
+    check(fileType, String);
+
+    const userId = this.userId;
+    if (!userId) {
+      throw new Meteor.Error('not-authorized', '권한이 없습니다.');
+    }
+
+    try {
+      // 파일 객체 생성
+      const fileObj = {
+        _id: new Meteor.Collection.ObjectID().toString(),
+        filename: fileName,
+        contentType: fileType,
+        length: fileData.length,
+        metadata: {
+          userId: userId,
+          uploadMethod: 'text',
+          originalName: fileName
+        }
+      };
+
+      // GridFS에 저장
+      const result = GridFSFiles.insert(fileObj, fileData);
+      if (!result) {
+        throw new Meteor.Error('upload-failed', '파일 저장에 실패했습니다.');
+      }
+
+      return {
+        success: true,
+        fileId: result._id,
+        message: '파일이 성공적으로 업로드되었습니다.'
+      };
+    } catch (error) {
+      console.error('텍스트 파일 업로드 실패:', error);
+      throw new Meteor.Error('upload-failed', error.message);
+    }
+  },
+
+  // 청크 단위 파일 업로드
+  uploadFileChunk(chunkData, fileName, fileType, chunkIndex, totalChunks) {
+    check(chunkData, Object);
+    check(fileName, String);
+    check(fileType, String);
+    check(chunkIndex, Number);
+    check(totalChunks, Number);
+
+    const userId = this.userId;
+    if (!userId) {
+      throw new Meteor.Error('not-authorized', '권한이 없습니다.');
+    }
+
+    try {
+      // 임시 저장소에 청크 저장
+      const chunkKey = `chunk_${fileName}_${chunkIndex}`;
+      const result = GridFSFiles.insert({
+        _id: chunkKey,
+        filename: fileName,
+        contentType: fileType,
+        length: chunkData.length,
+        metadata: {
+          userId: userId,
+          chunkIndex: chunkIndex,
+          totalChunks: totalChunks,
+          isChunk: true,
+          originalName: fileName
+        }
+      }, chunkData);
+
+      if (!result) {
+        throw new Meteor.Error('upload-failed', '청크 저장에 실패했습니다.');
+      }
+
+      // 모든 청크가 업로드되었는지 확인
+      if (chunkIndex === totalChunks - 1) {
+        // 청크들을 하나로 합치기
+        const chunks = [];
+        for (let i = 0; i < totalChunks; i++) {
+          const chunk = GridFSFiles.findOne(`chunk_${fileName}_${i}`);
+          if (chunk) {
+            chunks.push(chunk);
+          }
+        }
+
+        if (chunks.length === totalChunks) {
+          // 최종 파일 생성
+          const finalBuffer = Buffer.concat(chunks.map(chunk => chunk.data));
+          const fileObj = {
+            _id: new Meteor.Collection.ObjectID().toString(),
+            filename: fileName,
+            contentType: fileType,
+            length: finalBuffer.length,
+            metadata: {
+              userId: userId,
+              uploadMethod: 'chunks',
+              originalName: fileName
+            }
+          };
+
+          // 임시 청크들 삭제
+          chunks.forEach(chunk => GridFSFiles.remove(chunk._id));
+
+          // 최종 파일 저장
+          const finalResult = GridFSFiles.insert(fileObj, finalBuffer);
+          if (!finalResult) {
+            throw new Meteor.Error('upload-failed', '최종 파일 저장에 실패했습니다.');
+          }
+
+          return {
+            success: true,
+            fileId: finalResult._id,
+            message: '파일이 성공적으로 업로드되었습니다.'
+          };
+        }
+      }
+
+      return {
+        success: true,
+        message: '청크 업로드 완료',
+        chunkIndex: chunkIndex,
+        totalChunks: totalChunks
+      };
+    } catch (error) {
+      console.error('청크 업로드 실패:', error);
+      throw new Meteor.Error('upload-failed', error.message);
+    }
   }
 });
