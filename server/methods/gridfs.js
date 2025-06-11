@@ -234,7 +234,7 @@ Meteor.methods({
 
   // 텍스트 기반 파일 업로드
   uploadFileAsText(fileData, fileName, fileType) {
-    check(fileData, Object);
+    check(fileData, Match.OneOf(Object, String, Buffer));
     check(fileName, String);
     check(fileType, String);
 
