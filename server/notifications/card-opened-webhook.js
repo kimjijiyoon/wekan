@@ -75,7 +75,7 @@ if (Meteor.isServer) {
     };
 
     // 카드 변경 감지 설정
-    const cardsCursor = Cards.find({}, { fields: { listId: 1, title: 1, boardId: 1, description: 1, labelIds: 1, userId: 1, hasBeenHooked: 1 , customFields: 1 , members: 1, assignees: 1 , receivedAt: 1, startAt: 1, dueAt: 1, endAt: 1  } });
+    const cardsCursor = Cards.find({}, { fields: { swimlaneId: 1, listId: 1, title: 1, boardId: 1, description: 1, labelIds: 1, userId: 1, hasBeenHooked: 1 , customFields: 1 , members: 1, assignees: 1 , receivedAt: 1, startAt: 1, dueAt: 1, endAt: 1  } });
     cardsCursor.observeChanges({
       changed(id, fields) {
         const card = Cards.findOne(
@@ -83,6 +83,7 @@ if (Meteor.isServer) {
           {
             fields: {
               boardId: 1,
+              swimlaneId: 1,
               listId: 1,
               title: 1,
               description: 1,
@@ -165,16 +166,24 @@ if (Meteor.isServer) {
               );
 
               const integration = ReactiveCache.getIntegration({ boardId: card.boardId });
-              const globalIntegration = ReactiveCache.getIntegration({ type: 'global' });
-              
-              // 웹훅 URL 목록 생성
               const webhookUrls = [];
+
               if (integration && integration.url) {
                 webhookUrls.push(integration.url);
               }
-              if (globalIntegration && globalIntegration.url) {
-                webhookUrls.push(globalIntegration.url);
-              }
+
+              // === 글로벌 웹훅 추가 ===
+              const globalIntegrations = Integrations.find({
+                type: 'outgoing-webhooks',
+                boardId: '_global',
+                enabled: true
+              }).fetch();
+
+              globalIntegrations.forEach(integration => {
+                if (integration.url) {
+                  webhookUrls.push(integration.url);
+                }
+              });
 
               if (webhookUrls.length > 0) {
                 // customFields 데이터 수집 과정 디버깅
@@ -212,6 +221,8 @@ if (Meteor.isServer) {
                   event: 'cardMovedToStart',
                   card: {
                     id: card._id,
+                    boardId: card.boardId,
+                    swimlaneId: card.swimlaneId,
                     title: card.title,
                     description: card.description || null,
                     listName: listName || null,
