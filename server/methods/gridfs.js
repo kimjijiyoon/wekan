@@ -1,372 +1,275 @@
-import { Mongo } from 'meteor/mongo';
-import { HTTP } from 'meteor/http';
+import { Meteor } from 'meteor/meteor';
+import { check } from 'meteor/check';
+import { Attachments } from '/models/attachments';
+import { FilesCollection } from 'meteor/ostrio:files';
+import { fileStoreStrategyFactory } from '/models/attachments';
+import { STORAGE_NAME_GRIDFS } from '/models/lib/fileStoreStrategy';
 import { ReactiveCache } from '/imports/reactiveCache';
-import { TAPi18n } from '/imports/i18n';
-import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
-// GridFSFiles는 require로 동적 import
-let GridFSFiles;
-if (Meteor.isServer) {
-  GridFSFiles = require('../methods/gridfs').GridFSFiles;
-}
+// GridFS 버킷 생성
+const GridFSFiles = new FilesCollection({
+  collectionName: 'gridfs_files',
+  allowClientCode: false,
+  storagePath: 'gridfs_files',
+  onBeforeUpload(file) {
+    // 파일 크기 제한 (10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      return '파일 크기는 10MB를 초과할 수 없습니다.';
+    }
+    return true;
+  },
+  // MongoDB 연결 설정
+  connection: {
+    retryWrites: true,
+    w: 'majority',
+    wtimeoutMS: 2500,
+    connectTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
+    serverSelectionTimeoutMS: 10000,
+    heartbeatFrequencyMS: 10000
+  }
+});
 
-if (Meteor.isServer) {
-  Meteor.startup(() => {
-    console.log("[초기화] 카드 이동 감지 준비 중...");
-
-    const boardStartLists = {};
-
-    // "시작" 리스트 관찰 및 업데이트 함수
-    const updateStartListId = (boardId) => {
-      console.log(`[디버깅] 보드(${boardId})의 "시작" 리스트를 초기화 중...`);
-      const startList = Lists.findOne({ boardId, title: '시작' });
-      if (startList) {
-        boardStartLists[boardId] = startList._id;
-        console.log(`[초기화] 보드(${boardId})의 "시작" 리스트 ID: ${startList._id}`);
-      } else {
-        boardStartLists[boardId] = null;
-        console.log(`[알림] 보드(${boardId})의 "시작" 리스트가 아직 생성되지 않았습니다.`);
+// MongoDB 연결 재시도 로직
+const retryOperation = async (operation, maxRetries = 3) => {
+  let lastError;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (error.name === 'PoolClearedOnNetworkError') {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+        continue;
       }
-    };
+      throw error;
+    }
+  }
+  throw lastError;
+};
 
-    // "시작" 리스트 감지 설정
-    const listsCursor = Lists.find({ title: '시작' });
-    listsCursor.observeChanges({
-      added(id, fields) {
-        console.log(`[감지됨] "시작" 리스트 생성됨: ${id}`);
-        if (fields.boardId) {
-          boardStartLists[fields.boardId] = id;
-        }
-      },
-      removed(id) {
-        console.log(`[감지됨] "시작" 리스트 삭제됨: ${id}`);
-        Object.keys(boardStartLists).forEach(boardId => {
-          if (boardStartLists[boardId] === id) {
-            boardStartLists[boardId] = null;
-          }
-        });
-      },
-    });
+// GridFS 파일 저장 헬퍼 함수
+// fileData: Buffer | String | ReadStream
+// options: { name: String, type: String, size?: Number }
+// metadata: Object (JSON 직렬화 가능 값만 포함)
+const saveToGridFS = async (fileData, options, metadata = {}) => {
+  try {
+    const tmpDir = os.tmpdir();
+    const tmpFilePath = path.join(tmpDir, `upload-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`);
+    require('fs').writeFileSync(tmpFilePath, fileData);
 
-    // 모든 보드의 "시작" 리스트 초기화
-    const boards = Boards.find({}).fetch();
-    boards.forEach(board => updateStartListId(board._id));
-
-    Meteor.setTimeout(() => {
-      boards.forEach(board => {
-        if (!boardStartLists[board._id]) {
-          console.warn(`[재검사] 보드(${board._id})의 "시작" 리스트를 다시 확인합니다.`);
-          updateStartListId(board._id);
+    return await new Promise((resolve, reject) => {
+      GridFSFiles.addFile(tmpFilePath, {
+        fileName: options.name,
+        type: options.type,
+        size: options.size,
+        meta: metadata
+      }, (err, fileRef) => {
+        require('fs').unlinkSync(tmpFilePath);
+        if (err) {
+          reject(err);
+        } else {
+          resolve(fileRef);
         }
       });
-    }, 5000);
+    });
+  } catch (error) {
+    console.error('GridFS 파일 저장 실패:', error);
+    throw new Meteor.Error('upload-failed', '파일 업로드에 실패했습니다.');
+  }
+};
 
-    // 라벨 ID를 라벨명으로 변환하는 함수
-    const getLabelNames = (labelIds) => {
-      if (!labelIds || labelIds.length === 0) return [];
+Meteor.methods({
+  moveAttachmentToGridFS(fileId) {
+    check(fileId, String);
 
-      // 카드가 속한 보드 가져오기
-      const card = ReactiveCache.getCard({ labelIds: { $in: labelIds } });
-      if (!card) return [];
+    const userId = this.userId;
+    if (!userId) {
+      throw new Meteor.Error('not-authorized', '권한이 없습니다.');
+    }
 
-      const board = ReactiveCache.getBoard(card.boardId);
-      if (!board) return [];
+    return retryOperation(async () => {
+      try {
+        const attachment = Attachments.findOne(fileId);
+        if (!attachment) {
+          throw new Meteor.Error('not-found', '파일을 찾을 수 없습니다.');
+        }
 
-      return labelIds
-        .map(labelId => {
-          const label = board.getLabelById(labelId);
-          return label ? label.name : null;
-        })
-        .filter(labelName => labelName);
-    };
+        // 원본 파일 정보 저장
+        const originalName = attachment.name;
+        const originalType = attachment.type;
+        const originalExtension = originalName.split('.').pop();
 
-    // 카드 변경 감지 설정
-    const cardsCursor = Cards.find({}, { fields: { swimlaneId: 1, listId: 1, title: 1, boardId: 1, description: 1, labelIds: 1, userId: 1, hasBeenHooked: 1 , customFields: 1 , members: 1, assignees: 1 , receivedAt: 1, startAt: 1, dueAt: 1, endAt: 1  } });
-    cardsCursor.observeChanges({
-      changed(id, fields) {
-        const card = Cards.findOne(
-          { _id: id },
+        // 파일 확장자 변경
+        const newFileName = originalName.replace(/\.(txt|md|xlsx|xls|doc|docx|ppt|pptx)$/, '.zip');
+
+        // GridFS로 파일 이동
+        const fileData = attachment.versions.original.data;
+        if (!fileData) {
+          throw new Meteor.Error('no-data', '파일 데이터가 없습니다.');
+        }
+
+        console.log('addFile fileData:', typeof fileData, fileData && fileData.constructor && fileData.constructor.name);
+        console.log('addFile options:', options);
+
+        const meta = {
+          userId: userId,
+          boardId: attachment.meta.boardId,
+          cardId: attachment.meta.cardId,
+          originalAttachmentId: attachment._id,
+          originalName: originalName,
+          originalType: originalType,
+          originalExtension: originalExtension,
+          isModified: true
+        };
+
+        // saveToGridFS 헬퍼 함수 사용
+        const result = await saveToGridFS(
+          fileData,
           {
-            fields: {
-              boardId: 1,
-              swimlaneId: 1,
-              listId: 1,
-              title: 1,
-              description: 1,
-              labelIds: 1,
-              userId: 1,
-              hasBeenHooked: 1,
-              customFields: 1,
-              members: 1,      // members 필드 추가
-              assignees: 1,
-              receivedAt: 1,    // Received 날짜
-              startAt: 1,       // Start 날짜
-              dueAt: 1,         // Due 날짜
-              endAt: 1          // End 날짜 (있는 경우)
-            }
-          }
+            name: newFileName,
+            type: 'application/zip',
+            size: fileData.length
+          },
+          meta
         );
 
-        // 모든 필드를 가져오기
-        const card2 = Cards.findOne({ _id: id });
-
-        // console.log('[카드 전체 구조]', {
-        //   availableFields: Object.keys(card2 || {}),
-        //   fullCardData: card2,
-        // });
-
-        if (!card || !card.boardId) {
-          console.warn(`[경고] 카드(${id})의 boardId를 찾을 수 없습니다.`);
-          return;
+        if (!result) {
+          throw new Meteor.Error('upload-failed', '파일 업로드에 실패했습니다.');
         }
 
-        // 멤버와 담당자 정보 가져오기
-        const members = card.members ? card.members.map(memberId => {
-          const user = ReactiveCache.getUser(memberId);
-          return user ? user.username : null;
-        }).filter(Boolean) : [];
+        return {
+          success: true,
+          message: '파일이 GridFS로 이동되었습니다.'
+        };
+      } catch (error) {
+        console.error('파일 이동 실패:', error);
+        throw new Meteor.Error(
+          error.error || 'unknown-error',
+          error.reason || error.message || '파일 이동 중 오류가 발생했습니다.'
+        );
+      }
+    });
+  },
 
-        const assignees = card.assignees ? card.assignees.map(assigneeId => {
-          const user = ReactiveCache.getUser(assigneeId);
-          return user ? user.username : null;
-        }).filter(Boolean) : [];
+  migrateAllAttachmentsToGridFS() {
+    const userId = this.userId;
+    if (!userId) {
+      throw new Meteor.Error('not-authorized', '권한이 없습니다.');
+    }
 
-        // 리스트 이름 가져오기
-        const list = Lists.findOne({ _id: card.listId });
-        const listName = list ? list.title : null;
+    try {
+      const attachments = Attachments.find({}).fetch();
+      const results = {
+        success: 0,
+        failed: 0,
+        errors: []
+      };
 
-        // 라벨 이름 가져오기
-        const labels = getLabelNames(card.labelIds);
-
-        // 사용자 정보 가져오기
-        const user = Users.findOne({ _id: card.userId });
-        const userName = user ? user.username : 'Unknown';
-
-        // 보드 이름 가져오기
-        const board = Boards.findOne({ _id: card.boardId });
-        const boardName = board ? board.title : null;
-
-        // swimlaneName 가져오기
-        let swimlaneName = null;
-        if (card.swimlaneId) {
-          const swimlane = Swimlanes.findOne({ _id: card.swimlaneId });
-          swimlaneName = swimlane ? swimlane.title : null;
-        }
-
-
-        console.log(`[감지됨] 카드(${id}) 변경됨:`, fields);
-
-        if (card.listId === boardStartLists[card.boardId]) {
-          const existingCard = Cards.findOne(
-            {
-              _id: card._id,
-              $or: [
-                { hasBeenHooked: true },
-                { hasBeenHooked: { $exists: true, $eq: true } }
-              ]
-            }
-          );
-
-          if (existingCard) {
-            console.log(`[무시됨] 카드(${id})는 이미 이전에 훅이 실행되었습니다.`);
-          } else {
-            console.log(`[감지됨] 카드(${id})가 "시작" 리스트로 이동되었습니다.`);
-
-            try {
-              Cards.update(
-                { _id: card._id },
-                {
-                  $set: {
-                    hasBeenHooked: true,
-                    modifiedAt: new Date()
-                  }
-                }
-              );
-
-              const integration = ReactiveCache.getIntegration({ boardId: card.boardId });
-              const webhookUrls = [];
-
-              if (integration && integration.url) {
-                webhookUrls.push(integration.url);
-              }
-
-              // === 글로벌 웹훅 추가 ===
-              const globalIntegrations = Integrations.find({
-                type: 'outgoing-webhooks',
-                boardId: '_global',
-                enabled: true
-              }).fetch();
-
-              globalIntegrations.forEach(integration => {
-                if (integration.url) {
-                  webhookUrls.push(integration.url);
-                }
-              });
-
-              if (webhookUrls.length > 0) {
-                // customFields 데이터 수집 과정 디버깅
-                console.log('[카드 데이터]', {
-                  cardId: card._id,
-                  hasCustomFields: !!card.customFields,
-                  customFields: JSON.stringify(card.customFields, null, 2)
-                });
-
-                const customFieldsData = {};
-                if (card.customFields) {
-                  card.customFields.forEach(field => {
-                    console.log('[커스텀 필드 처리]', {
-                      fieldId: field._id,
-                      fieldValue: Array.isArray(field.value) ?
-                       JSON.stringify(field.value, null) : field.value
-                    });
-
-                    const definition = ReactiveCache.getCustomField(field._id);
-                    console.log('[커스텀 필드 정의]', {
-                      fieldId: field._id,
-                      definition: definition
-                    });
-
-                    if (definition) {
-                      customFieldsData[definition.name] = Array.isArray(field.value) ?
-                      JSON.stringify(field.value, null) : field.value;
-                    }
-                  });
-                }
-
-                console.log('[수집된 커스텀 필드 데이터]',  JSON.stringify(customFieldsData, null));
-
-                const payload = {
-                  event: 'cardMovedToStart',
-                  card: {
-                    id: card._id,
-                    boardId: card.boardId,
-                    boardName: boardName || null,
-                    swimlaneName: swimlaneName || null,
-                    swimlaneId: card.swimlaneId,
-                    title: card.title,
-                    description: card.description || null,
-                    listName: listName || null,
-                    labels: labels.length > 0 ? labels : null,
-                    user: userName || null,
-                    customFields: Object.keys(customFieldsData).length > 0 ?
-                      JSON.parse(JSON.stringify(customFieldsData)) : null,
-                    members: members.length > 0 ? members : null,
-                    assignees: assignees.length > 0 ? assignees : null,
-                    dates: {
-                      received: card.receivedAt || null,
-                      start: card.startAt || null,
-                      due: card.dueAt || null,
-                      end: card.endAt || null
-                    },
-                    attachments: []
-                  },
-                };
-
-                // 첨부파일 정보 수집
-                const attachments = Attachments.find({ 'meta.cardId': card._id }).fetch();
-                if (attachments && attachments.length > 0) {
-                  const attachmentPromises = attachments.map(attachment => {
-                    return new Promise((resolve, reject) => {
-                      const attachmentInfo = {
-                        id: attachment._id,
-                        name: attachment.meta.originalName || attachment.name,
-                        type: attachment.meta.originalType || attachment.type,
-                        size: attachment.size,
-                        uploadedAt: attachment.uploadedAt,
-                        storageStrategy: attachment.meta.storageStrategy || 'filesystem',
-                        url: null,
-                        data: null,
-                        isModified: attachment.meta.isModified || false
-                      };
-
-                      try {
-                        // GridFS 파일인 경우
-                        if (attachment.meta.storageStrategy === 'gridfs' && attachment.meta.gridFsFileId) {
-                          attachmentInfo.gridFsFileId = attachment.meta.gridFsFileId;
-                          const gridFsFile = GridFSFiles.findOne({ _id: attachment.meta.gridFsFileId });
-                          if (gridFsFile) {
-                            attachmentInfo.url = gridFsFile.link();
-                            // GridFS 파일 데이터는 직접 접근하지 않고 URL만 전달
-                          }
-                        } else {
-                          // 일반 파일시스템 파일인 경우
-                          const fileUrl = Attachments.findOne(attachment._id).link();
-                          if (fileUrl) {
-                            attachmentInfo.url = fileUrl;
-                          }
-
-                          const fileObj = Attachments.findOne(attachment._id);
-                          if (fileObj && fileObj.versions && fileObj.versions.original && fileObj.versions.original.path) {
-                            try {
-                              const fileData = fs.readFileSync(fileObj.versions.original.path);
-                              attachmentInfo.data = fileData.toString('base64');
-                            } catch (error) {
-                              console.error(`[파일 읽기 실패] ${attachment._id}:`, error);
-                            }
-                          }
-                        }
-                        resolve(attachmentInfo);
-                      } catch (error) {
-                        console.error(`[첨부파일 처리 실패] ${attachment._id}:`, error);
-                        resolve(attachmentInfo); // 에러가 발생해도 기본 정보는 전달
-                      }
-                    });
-                  });
-
-                  Promise.all(attachmentPromises)
-                    .then(attachmentData => {
-                      payload.card.attachments = attachmentData;
-
-                      console.log(`[디버깅] 웹훅으로 전송할 데이터:`, payload);
-
-                      // 모든 웹훅 URL에 전송
-                      sendWebhook(payload, webhookUrls);
-                    })
-                    .catch(error => {
-                      console.error(`[첨부파일 처리 실패] 카드(${id}):`, error);
-                      // 첨부파일 처리 실패 시에도 웹훅은 전송
-                      sendWebhook(payload, webhookUrls);
-                    });
-                } else {
-                  // 첨부파일이 없는 경우 바로 웹훅 전송
-                  console.log(`[디버깅] 웹훅으로 전송할 데이터:`, payload);
-
-                  // 모든 웹훅 URL에 전송
-                  sendWebhook(payload, webhookUrls);
-                }
-              } else {
-                console.warn(`[경고] 보드(${card.boardId})의 웹훅 URL과 글로벌 웹훅 URL을 모두 찾을 수 없습니다.`);
-              }
-            } catch (error) {
-              console.error(`[오류] 카드 상태 업데이트 실패:`, error);
-              return;
-            }
+      attachments.forEach(attachment => {
+        try {
+          // 보드 멤버 권한 확인
+          const board = ReactiveCache.getBoard(attachment.meta.boardId);
+          if (!board || !board.hasMember(userId)) {
+            throw new Meteor.Error('not-authorized', '보드 멤버만 파일을 이동할 수 있습니다.');
           }
-        } else {
-          console.log(`[무시됨] 카드(${id})는 "시작" 리스트로 이동하지 않았습니다.`);
+
+          Meteor.call('moveAttachmentToGridFS', attachment._id);
+          results.success++;
+        } catch (error) {
+          results.failed++;
+          results.errors.push({
+            fileId: attachment._id,
+            error: error.message
+          });
         }
-      },
-    });
-  });
-}
+      });
 
-// 웹훅 전송 함수 분리
-function sendWebhook(payload, webhookUrls) {
-  const cardId = payload.card.id;
-  webhookUrls.forEach(url => {
-    HTTP.post(url, {
-      data: payload,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-File-Transfer': 'binary'
-      }
-    }, (err, res) => {
-      if (err) {
-        console.error(`[Webhook 실패] 카드(${cardId}) URL(${url}):`, err);
-      } else {
-        console.log(`[Webhook 성공] 카드(${cardId}) URL(${url}):`, res);
-      }
-    });
-  });
-}
+      return {
+        success: true,
+        message: `${results.success}개의 파일이 성공적으로 이동되었습니다.`,
+        failed: results.failed,
+        errors: results.errors
+      };
+    } catch (error) {
+      console.error('전체 파일 이동 실패:', error);
+      throw new Meteor.Error(
+        error.error || 'unknown-error',
+        error.reason || error.message || '파일 이동 중 오류가 발생했습니다.'
+      );
+    }
+  },
 
+  // GridFS에서 파일 삭제
+  removeFileFromGridFS(fileId) {
+    check(fileId, String);
+
+    const userId = this.userId;
+    if (!userId) {
+      throw new Meteor.Error('not-authorized', '권한이 없습니다.');
+    }
+
+    try {
+      const file = GridFSFiles.findOne({ _id: fileId });
+      if (!file) {
+        throw new Meteor.Error('file-not-found', '파일을 찾을 수 없습니다.');
+      }
+
+      // 보드 멤버 권한 확인
+      const board = ReactiveCache.getBoard(file.metadata.boardId);
+      if (!board || !board.hasMember(userId)) {
+        throw new Meteor.Error('not-authorized', '보드 멤버만 파일을 삭제할 수 있습니다.');
+      }
+
+      // GridFS에서 파일 삭제
+      GridFSFiles.remove({ _id: fileId });
+
+      return { success: true, message: '파일이 삭제되었습니다.' };
+    } catch (error) {
+      console.error('GridFS 파일 삭제 실패:', error);
+      throw new Meteor.Error('remove-failed', error.message);
+    }
+  },
+
+  // GridFS 파일 정보 조회
+  getGridFSFileInfo(fileId) {
+    check(fileId, String);
+
+    const userId = this.userId;
+    if (!userId) {
+      throw new Meteor.Error('not-authorized', '권한이 없습니다.');
+    }
+
+    try {
+      const file = GridFSFiles.findOne({ _id: fileId });
+      if (!file) {
+        throw new Meteor.Error('file-not-found', '파일을 찾을 수 없습니다.');
+      }
+
+      // 보드 멤버 권한 확인
+      const board = ReactiveCache.getBoard(file.metadata.boardId);
+      if (!board || !board.hasMember(userId)) {
+        throw new Meteor.Error('not-authorized', '보드 멤버만 파일 정보를 조회할 수 있습니다.');
+      }
+
+      return {
+        success: true,
+        fileInfo: {
+          id: file._id,
+          filename: file.name,
+          contentType: file.type,
+          length: file.size,
+          uploadDate: file.uploadedAt,
+          metadata: file.meta
+        }
+      };
+    } catch (error) {
+      console.error('GridFS 파일 정보 조회 실패:', error);
+      throw new Meteor.Error('get-info-failed', error.message);
+    }
+  }
+});
+
+export { GridFSFiles, saveToGridFS };
