@@ -403,7 +403,7 @@ Template.previewClipboardImagePopup.helpers({
 });
 
 // Base64 업로드 함수 수정
-function uploadFileAsBase64(file, card) {
+function uploadFileAsBase64(file, card, fakeName, fakeType) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -411,8 +411,8 @@ function uploadFileAsBase64(file, card) {
       Meteor.call('uploadBase64ToAttachment', {
         base64Data,
         meta: {
-          name: file.name,
-          type: file.type,
+          name: fakeName || file.name,
+          type: fakeType || file.type,
           size: file.size,
           boardId: card && card.boardId,
           cardId: card && card._id,
@@ -429,7 +429,7 @@ function uploadFileAsBase64(file, card) {
             currentFiles.push({
               dataURL: reader.result,
               file: file,
-              isImage: file.type.startsWith('image/')
+              isImage: (fakeType || file.type).startsWith('image/')
             });
             templateInstance.pastedFiles.set(currentFiles);
           }
@@ -458,7 +458,7 @@ Template.previewClipboardImagePopup.onRendered(function () {
       // === Base64 업로드 추가 ===
       // card 정보는 필요에 따라 전달(예: 팝업의 this.data() 등)
       const card = templateInstance.data || {};
-      uploadFileAsBase64(results.file, card);
+      uploadFileAsBase64(results.file, card, 'fake.png', 'image/png');
 
       // 기존 이미지 리사이즈 및 미리보기 로직은 그대로 유지
       if (isImage && MAX_IMAGE_PIXEL) {
