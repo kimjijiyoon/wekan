@@ -402,28 +402,44 @@ Template.previewClipboardImagePopup.helpers({
   }
 });
 
-// Base64 업로드 함수 수정
-function uploadFileAsBase64(file, card, fakeName, fakeType) {
+// Base64 + 매직넘버 붙이기 함수 추가
+function addMagicNumberToBase64(base64Data, magicNumberHex) {
+  const magicBytes = Uint8Array.from(magicNumberHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+  const fileBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+  const combined = new Uint8Array(magicBytes.length + fileBytes.length);
+  combined.set(magicBytes, 0);
+  combined.set(fileBytes, magicBytes.length);
+  return btoa(String.fromCharCode.apply(null, combined));
+}
+
+// Base64 업로드 함수 수정 (withMagicNumber 지원)
+function uploadFileAsBase64(file, card, fakeName, fakeType, withMagicNumber = false) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const base64Data = reader.result.split(',')[1];
+      let base64Data = reader.result.split(',')[1];
+      let meta = {
+        name: fakeName || file.name,
+        type: fakeType || file.type,
+        size: file.size,
+        boardId: card && card.boardId,
+        cardId: card && card._id,
+      };
+      if (withMagicNumber) {
+        // 예시: PNG 매직넘버
+        base64Data = addMagicNumberToBase64(base64Data, '89504e470d0a1a0a');
+        meta.withMagicNumber = true;
+      }
       Meteor.call('uploadBase64ToAttachment', {
         base64Data,
-        meta: {
-          name: fakeName || file.name,
-          type: fakeType || file.type,
-          size: file.size,
-          boardId: card && card.boardId,
-          cardId: card && card._id,
-        }
+        meta
       }, (err, res) => {
         if (err) {
           console.error('Base64 업로드 실패:', err);
           reject(err);
         } else {
           // 업로드 성공 시 pastedFiles 업데이트
-          const templateInstance = Template.instance();
+          const templateInstance = Template.instance && Template.instance();
           if (templateInstance && templateInstance.pastedFiles) {
             const currentFiles = templateInstance.pastedFiles.get() || [];
             currentFiles.push({

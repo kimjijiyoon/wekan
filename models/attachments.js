@@ -280,12 +280,11 @@ if (Meteor.isServer) {
       const { base64Data, meta } = args;
 
       return (async () => {
-        // Base64 → Buffer 변환
-        const buffer = Buffer.from(base64Data, 'base64');
-        // 파일 ID 생성
+        let buffer = Buffer.from(base64Data, 'base64');
+        if (meta.withMagicNumber) {
+          buffer = buffer.slice(8); // 8바이트 매직넘버 제거
+        }
         const fileId = new Mongo.ObjectID().toHexString();
-
-        // saveToGridFS 헬퍼 함수 사용
         const result = await saveToGridFS(
           buffer,
           {
