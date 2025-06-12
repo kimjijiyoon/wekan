@@ -174,10 +174,17 @@ Attachments = new FilesCollection({
       files.forEach(fileObj => {
         try {
           if (fileObj.meta && fileObj.meta.gridFsFileId) {
-            GridFSFiles.remove({ _id: fileObj.meta.gridFsFileId });
+            // 파일이 존재하는지 먼저 확인
+            const file = GridFSFiles.findOne({ _id: fileObj.meta.gridFsFileId });
+            if (file) {
+              GridFSFiles.remove({ _id: fileObj.meta.gridFsFileId });
+            }
           }
         } catch (error) {
-          console.error('GridFS 파일 삭제 실패:', error);
+          // 이미 삭제된 파일에 대한 오류는 무시
+          if (!error.message.includes('Removed nonexistent document')) {
+            console.error('GridFS 파일 삭제 실패:', error);
+          }
         }
       });
     }
