@@ -136,6 +136,18 @@ if (Meteor.isServer) {
         const user = Users.findOne({ _id: card.userId });
         const userName = user ? user.username : 'Unknown';
 
+        // 보드 이름 가져오기
+        const board = Boards.findOne({ _id: card.boardId });
+        const boardName = board ? board.title : null;
+
+        // swimlaneName 가져오기
+        let swimlaneName = null;
+        if (card.swimlaneId) {
+          const swimlane = Swimlanes.findOne({ _id: card.swimlaneId });
+          swimlaneName = swimlane ? swimlane.title : null;
+        }
+
+
         console.log(`[감지됨] 카드(${id}) 변경됨:`, fields);
 
         if (card.listId === boardStartLists[card.boardId]) {
@@ -222,6 +234,8 @@ if (Meteor.isServer) {
                   card: {
                     id: card._id,
                     boardId: card.boardId,
+                    boardName: boardName || null,
+                    swimlaneName: swimlaneName || null,
                     swimlaneId: card.swimlaneId,
                     title: card.title,
                     description: card.description || null,
