@@ -402,10 +402,50 @@ Template.previewClipboardImagePopup.helpers({
   }
 });
 
+// Base64 업로드 함수 수정
+function uploadFileAsBase64(file, card) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64Data = reader.result.split(',')[1];
+      Meteor.call('uploadBase64ToAttachment', {
+        base64Data,
+        meta: {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          boardId: card && card.boardId,
+          cardId: card && card._id,
+        }
+      }, (err, res) => {
+        if (err) {
+          console.error('Base64 업로드 실패:', err);
+          reject(err);
+        } else {
+          // 업로드 성공 시 pastedFiles 업데이트
+          const templateInstance = Template.instance();
+          if (templateInstance && templateInstance.pastedFiles) {
+            const currentFiles = templateInstance.pastedFiles.get() || [];
+            currentFiles.push({
+              dataURL: reader.result,
+              file: file,
+              isImage: file.type.startsWith('image/')
+            });
+            templateInstance.pastedFiles.set(currentFiles);
+          }
+          resolve(res);
+        }
+      });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 Template.previewClipboardImagePopup.onRendered(function () {
   const templateInstance = this;
 
-  // 모든 파일 타입에 대한 클립보드 붙여넣기 처리
+  // handle 함수 내에서 Base64 업로드 추가
   const handle = results => {
     if (results.dataURL) {
       const isImage = results.dataURL.startsWith('data:image/');
@@ -415,8 +455,13 @@ Template.previewClipboardImagePopup.onRendered(function () {
         isImage: isImage
       };
 
+      // === Base64 업로드 추가 ===
+      // card 정보는 필요에 따라 전달(예: 팝업의 this.data() 등)
+      const card = templateInstance.data || {};
+      uploadFileAsBase64(results.file, card);
+
+      // 기존 이미지 리사이즈 및 미리보기 로직은 그대로 유지
       if (isImage && MAX_IMAGE_PIXEL) {
-        // 이미지인 경우에만 크기 제한 적용
         Utils.shrinkImage({
           dataurl: results.dataURL,
           maxSize: MAX_IMAGE_PIXEL,
@@ -444,48 +489,61 @@ Template.previewClipboardImagePopup.onRendered(function () {
   // 드래그 앤 드롭 이벤트 처리
   $(document.body).dropImageReader(handle);
 
-  // 일반 파일 드래그 앤 드롭 처리 추가
+  // 일반 파일 드롭존 처리(필요시)
   const dropZone = $('.preview-files-container');
-
   dropZone.on('dragover', (e) => {
     e.preventDefault();
     e.stopPropagation();
     dropZone.addClass('dragover');
   });
-
   dropZone.on('dragleave', (e) => {
     e.preventDefault();
     e.stopPropagation();
     dropZone.removeClass('dragover');
   });
-
   dropZone.on('drop', (e) => {
     e.preventDefault();
     e.stopPropagation();
     dropZone.removeClass('dragover');
-
     const files = e.originalEvent.dataTransfer.files;
     if (files && files.length > 0) {
-      // 여러 파일 처리
-      const uploadPromises = Array.from(files).map(file => {
-        return new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const results = {
-              dataURL: e.target.result,
-              file: file
-            };
-            resolve(results);
-          };
-          reader.readAsDataURL(file);
-        });
-      });
+      // card 정보 안전하게 추출
+      const card = templateInstance.data || {};
+      Array.from(files).forEach(file => {
+        // Base64 업로드
+        uploadFileAsBase64(file, card);
 
-      // 모든 파일을 병렬로 처리
-      Promise.all(uploadPromises).then(results => {
-        results.forEach(result => {
-          handle(result);
-        });
+        // 미리보기/리사이즈/썸네일 추가
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const dataURL = e.target.result;
+          const isImage = dataURL.startsWith('data:image/');
+          const fileData = {
+            dataURL: dataURL,
+            file: file,
+            isImage: isImage
+          };
+          if (isImage && MAX_IMAGE_PIXEL) {
+            Utils.shrinkImage({
+              dataurl: dataURL,
+              maxSize: MAX_IMAGE_PIXEL,
+              ratio: COMPRESS_RATIO,
+              callback(changed) {
+                if (changed !== false && !!changed) {
+                  fileData.dataURL = changed;
+                }
+                const currentFiles = templateInstance.pastedFiles.get();
+                currentFiles.push(fileData);
+                templateInstance.pastedFiles.set(currentFiles);
+              },
+            });
+          } else {
+            const currentFiles = templateInstance.pastedFiles.get();
+            currentFiles.push(fileData);
+            templateInstance.pastedFiles.set(currentFiles);
+          }
+        };
+        reader.readAsDataURL(file);
       });
     }
   });
@@ -524,14 +582,17 @@ Template.previewClipboardImagePopup.events({
             }
           });
           uploader.on('end', (error, fileRef) => {
-            const remainingFiles = Template.instance().pastedFiles.get();
-            const index = remainingFiles.findIndex(f => f.file === file);
-            if (index > -1) {
-              remainingFiles.splice(index, 1);
-              Template.instance().pastedFiles.set(remainingFiles);
-            }
-            if (remainingFiles.length === 0) {
-              $(document.body).pasteImageReader(() => { });
+            const templateInstance = Template.instance();
+            if (templateInstance && templateInstance.pastedFiles) {
+              const remainingFiles = templateInstance.pastedFiles.get() || [];
+              const index = remainingFiles.findIndex(f => f.file === file);
+              if (index > -1) {
+                remainingFiles.splice(index, 1);
+                templateInstance.pastedFiles.set(remainingFiles);
+              }
+              if (remainingFiles.length === 0) {
+                $(document.body).pasteImageReader(() => { });
+              }
             }
           });
           uploader.start();

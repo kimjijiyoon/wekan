@@ -4,6 +4,12 @@ import { ReactiveCache } from '/imports/reactiveCache';
 import { TAPi18n } from '/imports/i18n';
 import fs from 'fs';
 
+// GridFSFiles는 require로 동적 import
+let GridFSFiles;
+if (Meteor.isServer) {
+  GridFSFiles = require('../methods/gridfs').GridFSFiles;
+}
+
 if (Meteor.isServer) {
   Meteor.startup(() => {
     console.log("[초기화] 카드 이동 감지 준비 중...");
@@ -273,36 +279,36 @@ if (Meteor.isServer) {
                         isModified: attachment.meta.isModified || false
                       };
 
-                      if (attachment.meta.storageStrategy === 'gridfs' && attachment.meta.gridFsFileId) {
-                        attachmentInfo.gridFsFileId = attachment.meta.gridFsFileId;
-                      }
-
                       try {
-                        const fileUrl = Attachments.findOne(attachment._id).link();
-                        if (fileUrl) {
-                          attachmentInfo.url = fileUrl;
-                        }
-
-                        const fileObj = Attachments.findOne(attachment._id);
-                        if (fileObj) {
-                          try {
-                            const filePath = fileObj.versions.original.path;
-                            if (filePath) {
-                              const fileData = fs.readFileSync(filePath);
-                              attachmentInfo.data = fileData.toString('base64');
-                            } else {
-                              console.error(`[경고] 파일 경로를 찾을 수 없음: ${attachment._id}`);
-                            }
-                          } catch (error) {
-                            console.error(`[파일 읽기 실패] ${attachment._id}:`, error);
+                        // GridFS 파일인 경우
+                        if (attachment.meta.storageStrategy === 'gridfs' && attachment.meta.gridFsFileId) {
+                          attachmentInfo.gridFsFileId = attachment.meta.gridFsFileId;
+                          const gridFsFile = GridFSFiles.findOne({ _id: attachment.meta.gridFsFileId });
+                          if (gridFsFile) {
+                            attachmentInfo.url = gridFsFile.link();
+                            // GridFS 파일 데이터는 직접 접근하지 않고 URL만 전달
                           }
-                          resolve(attachmentInfo);
                         } else {
-                          resolve(attachmentInfo);
+                          // 일반 파일시스템 파일인 경우
+                          const fileUrl = Attachments.findOne(attachment._id).link();
+                          if (fileUrl) {
+                            attachmentInfo.url = fileUrl;
+                          }
+
+                          const fileObj = Attachments.findOne(attachment._id);
+                          if (fileObj && fileObj.versions && fileObj.versions.original && fileObj.versions.original.path) {
+                            try {
+                              const fileData = fs.readFileSync(fileObj.versions.original.path);
+                              attachmentInfo.data = fileData.toString('base64');
+                            } catch (error) {
+                              console.error(`[파일 읽기 실패] ${attachment._id}:`, error);
+                            }
+                          }
                         }
+                        resolve(attachmentInfo);
                       } catch (error) {
                         console.error(`[첨부파일 처리 실패] ${attachment._id}:`, error);
-                        resolve(attachmentInfo);
+                        resolve(attachmentInfo); // 에러가 발생해도 기본 정보는 전달
                       }
                     });
                   });
@@ -314,45 +320,19 @@ if (Meteor.isServer) {
                       console.log(`[디버깅] 웹훅으로 전송할 데이터:`, payload);
 
                       // 모든 웹훅 URL에 전송
-                      webhookUrls.forEach(url => {
-                        HTTP.post(url, {
-                          data: payload,
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'X-File-Transfer': 'binary'
-                          }
-                        }, (err, res) => {
-                          if (err) {
-                            console.error(`[Webhook 실패] 카드(${id}) URL(${url}):`, err);
-                          } else {
-                            console.log(`[Webhook 성공] 카드(${id}) URL(${url}):`, res);
-                          }
-                        });
-                      });
+                      sendWebhook(payload, webhookUrls);
                     })
                     .catch(error => {
                       console.error(`[첨부파일 처리 실패] 카드(${id}):`, error);
+                      // 첨부파일 처리 실패 시에도 웹훅은 전송
+                      sendWebhook(payload, webhookUrls);
                     });
                 } else {
                   // 첨부파일이 없는 경우 바로 웹훅 전송
                   console.log(`[디버깅] 웹훅으로 전송할 데이터:`, payload);
 
                   // 모든 웹훅 URL에 전송
-                  webhookUrls.forEach(url => {
-                    HTTP.post(url, {
-                      data: payload,
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'X-File-Transfer': 'binary'
-                      }
-                    }, (err, res) => {
-                      if (err) {
-                        console.error(`[Webhook 실패] 카드(${id}) URL(${url}):`, err);
-                      } else {
-                        console.log(`[Webhook 성공] 카드(${id}) URL(${url}):`, res);
-                      }
-                    });
-                  });
+                  sendWebhook(payload, webhookUrls);
                 }
               } else {
                 console.warn(`[경고] 보드(${card.boardId})의 웹훅 URL과 글로벌 웹훅 URL을 모두 찾을 수 없습니다.`);
@@ -366,6 +346,26 @@ if (Meteor.isServer) {
           console.log(`[무시됨] 카드(${id})는 "시작" 리스트로 이동하지 않았습니다.`);
         }
       },
+    });
+  });
+}
+
+// 웹훅 전송 함수 분리
+function sendWebhook(payload, webhookUrls) {
+  const cardId = payload.card.id;
+  webhookUrls.forEach(url => {
+    HTTP.post(url, {
+      data: payload,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-File-Transfer': 'binary'
+      }
+    }, (err, res) => {
+      if (err) {
+        console.error(`[Webhook 실패] 카드(${cardId}) URL(${url}):`, err);
+      } else {
+        console.log(`[Webhook 성공] 카드(${cardId}) URL(${url}):`, res);
+      }
     });
   });
 }
