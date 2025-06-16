@@ -170,15 +170,16 @@ Attachments = new FilesCollection({
   interceptDownload(http, fileObj, versionName) {
     // 다운로드 요청인 경우
     if (http.request.query.download === 'true') {
-      // http.response가 없으면 생성
       if (!http.response) {
         http.response = {};
       }
-      // headers가 없으면 생성
       if (!http.response.headers) {
         http.response.headers = {};
       }
+      // 원본 파일명으로 다운로드
       http.response.headers['Content-Disposition'] = `attachment; filename="${fileObj.meta.originalName || fileObj.name}"`;
+      // 원본 타입으로 Content-Type 설정
+      http.response.headers['Content-Type'] = fileObj.meta.originalType || fileObj.type;
     }
     const ret = fileStoreStrategyFactory.getFileStrategy(fileObj, versionName).interceptDownload(http, this.cacheControl);
     return ret;
@@ -281,9 +282,6 @@ if (Meteor.isServer) {
 
       return (async () => {
         let buffer = Buffer.from(base64Data, 'base64');
-        if (meta.withMagicNumber) {
-          buffer = buffer.slice(8); // 8바이트 매직넘버 제거
-        }
         const fileId = new Mongo.ObjectID().toHexString();
         const result = await saveToGridFS(
           buffer,
@@ -299,7 +297,8 @@ if (Meteor.isServer) {
             originalName: String(meta.name),
             originalType: String(meta.type),
             originalExtension: String(meta.name.split('.').pop()),
-            isModified: false
+            isModified: false,
+            magicNumber: meta.magicNumber
           }
         );
         return {

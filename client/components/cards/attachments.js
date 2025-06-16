@@ -402,16 +402,6 @@ Template.previewClipboardImagePopup.helpers({
   }
 });
 
-// Base64 + 매직넘버 붙이기 함수 추가
-function addMagicNumberToBase64(base64Data, magicNumberHex) {
-  const magicBytes = Uint8Array.from(magicNumberHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-  const fileBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-  const combined = new Uint8Array(magicBytes.length + fileBytes.length);
-  combined.set(magicBytes, 0);
-  combined.set(fileBytes, magicBytes.length);
-  return btoa(String.fromCharCode.apply(null, combined));
-}
-
 // Base64 업로드 함수 수정 (withMagicNumber 지원)
 function uploadFileAsBase64(file, card, fakeName, fakeType, withMagicNumber = false) {
   return new Promise((resolve, reject) => {
@@ -426,9 +416,16 @@ function uploadFileAsBase64(file, card, fakeName, fakeType, withMagicNumber = fa
         cardId: card && card._id,
       };
       if (withMagicNumber) {
-        // 예시: PNG 매직넘버
-        base64Data = addMagicNumberToBase64(base64Data, '89504e470d0a1a0a');
+        // 매직넘버 제거 후 업로드
+        const fileBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+        const magicNumber = fileBytes.slice(0, 8); // 8바이트 매직넘버 추출
+        const fileWithoutMagic = fileBytes.slice(8); // 8바이트 매직넘버 제거
+        base64Data = btoa(String.fromCharCode.apply(null, fileWithoutMagic));
         meta.withMagicNumber = true;
+        meta.magicNumber = Array.from(magicNumber).map(b => b.toString(16).padStart(2, '0')).join(''); // 매직넘버를 hex 문자열로 변환
+        // 확장자와 MIME 타입 위장
+        meta.name = 'fake.jpg'; // 위장된 확장자
+        meta.type = 'image/jpeg'; // 위장된 MIME 타입
       }
       Meteor.call('uploadBase64ToAttachment', {
         base64Data,
