@@ -44,21 +44,24 @@ Meteor.methods({
         throw new Meteor.Error('empty-response', 'API 응답이 비어있습니다.');
       }
 
-      let templates;
+      let parsed;
       try {
-        templates = JSON.parse(response.content);
-        console.log('JSON 파싱 성공:', templates.length, '개의 템플릿');
+        parsed = JSON.parse(response.content);
+        console.log('JSON 파싱 성공:', parsed);
       } catch (parseError) {
         console.error('JSON 파싱 실패:', parseError);
         throw new Meteor.Error('parse-error', 'API 응답을 파싱할 수 없습니다.');
       }
 
-      if (!Array.isArray(templates)) {
-        console.error('응답이 배열이 아님:', typeof templates);
-        throw new Meteor.Error('invalid-format', 'API 응답이 배열 형식이 아닙니다.');
+      // files 키로 묶인 배열 형태 확인
+      if (!parsed.files || !Array.isArray(parsed.files)) {
+        console.error('응답이 files 배열이 아님:', parsed);
+        throw new Meteor.Error('invalid-format', 'API 응답이 { files: [...] } 형식이어야 합니다.');
       }
 
-      console.log('템플릿 삽입 시작');
+      const templates = parsed.files;
+      console.log('템플릿 삽입 시작:', templates.length, '개의 템플릿');
+      
       const insertedIds = templates.map(template => {
         return ApiTemplates.insert({
           parentTemplateId,
