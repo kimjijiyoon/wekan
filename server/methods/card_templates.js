@@ -35,35 +35,64 @@ Meteor.methods({
           timeout: 20000
         });
       } catch (httpError) {
-        console.error('HTTP 요청 실패:', httpError);
+        console.error('[API 템플릿][HTTP 요청 실패]', {
+          url,
+          params,
+          error: httpError,
+          time: new Date().toISOString(),
+        });
+        if (httpError.response) {
+          console.error('[API 템플릿][HTTP 응답]', httpError.response);
+        }
         throw new Meteor.Error('http-error', `API 요청 실패: ${httpError.message}`);
       }
 
       if (!response.content) {
-        console.error('응답 내용 없음');
+        console.error('[API 템플릿][응답 내용 없음]', {
+          url,
+          params,
+          response,
+          time: new Date().toISOString(),
+        });
         throw new Meteor.Error('empty-response', 'API 응답이 비어있습니다.');
       }
 
       let parsed;
       try {
         parsed = JSON.parse(response.content);
-        console.log('JSON 파싱 성공:', parsed);
+        console.log('[API 템플릿][JSON 파싱 성공]', {
+          url,
+          params,
+          parsed,
+          time: new Date().toISOString(),
+        });
       } catch (parseError) {
-        console.error('JSON 파싱 실패:', parseError);
+        console.error('[API 템플릿][JSON 파싱 실패]', {
+          url,
+          params,
+          content: response.content,
+          error: parseError,
+          time: new Date().toISOString(),
+        });
         throw new Meteor.Error('parse-error', 'API 응답을 파싱할 수 없습니다.');
       }
 
       // files 키로 묶인 배열 형태 확인
       if (!parsed.files || !Array.isArray(parsed.files)) {
-        console.error('응답이 files 배열이 아님:', parsed);
+        console.error('[API 템플릿][응답이 files 배열이 아님]', {
+          url,
+          params,
+          parsed,
+          time: new Date().toISOString(),
+        });
         throw new Meteor.Error('invalid-format', 'API 응답이 { files: [...] } 형식이어야 합니다.');
       }
 
       const templates = parsed.files;
       console.log('템플릿 삽입 시작:', templates.length, '개의 템플릿');
-      
+
       const insertedIds = templates.map(template => {
-        return ApiTemplates.insert({
+        const insertResult = ApiTemplates.insert({
           parentTemplateId,
           title: template.title || '제목 없음',
           description: template.description || '',
@@ -72,6 +101,12 @@ Meteor.methods({
           createdAt: new Date(),
           enabled: true
         });
+        console.log('[API 템플릿][템플릿 삽입]', {
+          template,
+          insertResult,
+          time: new Date().toISOString(),
+        });
+        return insertResult;
       });
 
       console.log('작업 완료:', insertedIds.length, '개의 템플릿 추가됨');
@@ -81,7 +116,12 @@ Meteor.methods({
       };
 
     } catch (error) {
-      console.error('전체 처리 실패:', error);
+      console.error('[API 템플릿][전체 처리 실패]', {
+        url: params?.url,
+        params,
+        error,
+        time: new Date().toISOString(),
+      });
       throw new Meteor.Error(
         error.error || 'unknown-error',
         error.reason || error.message || '알 수 없는 오류가 발생했습니다.'

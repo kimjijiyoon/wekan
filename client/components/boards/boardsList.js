@@ -254,6 +254,9 @@ BlazeComponent.extendComponent({
               } else {
                 Session.set('fromBoard', null);
                 subManager.subscribe('board', res, false);
+                // [추가] 템플릿도 구독
+                subManager.subscribe('cardTemplates', res);
+                subManager.subscribe('apiTemplates', res);
                 FlowRouter.go('board', {
                   id: res,
                   slug: title,

@@ -646,10 +646,13 @@ Boards.helpers({
   copy() {
     const oldId = this._id;
     const oldWatchers = this.watchers ? this.watchers.slice() : [];
+    console.log('[Board 복사 시작]', { oldId, title: this.title, time: new Date().toISOString() });
     delete this._id;
     delete this.slug;
     this.title = this.copyTitle();
     const _id = Boards.insert(this);
+    const newBoardId = _id; // 복사된 보드 id
+    console.log('[Board 복사 완료, 새 보드 ID]', { newId: _id, time: new Date().toISOString() });
 
     // Temporary remove watchers to disable notifications
     Boards.update(_id, {
@@ -709,26 +712,37 @@ Boards.helpers({
       Rules.insert(rule);
     });
 
-    // [추가] 카드 템플릿 복사
+    // [추가] 카드 템플릿 복사 및 매핑
     const cardTemplates = CardTemplates.find({ boardId: oldId }).fetch();
+    const cardTemplateIdMap = {};
     cardTemplates.forEach(template => {
       const { _id, ...rest } = template;
-      CardTemplates.insert({
+      const insertedId = CardTemplates.insert({
         ...rest,
-        boardId: _id, // 새 보드의 id로 변경
+        boardId: newBoardId,
         createdAt: new Date(),
+        modifiedAt: new Date(),
       });
+      cardTemplateIdMap[_id] = insertedId;
+      console.log('[카드 템플릿 복사]', { oldTemplateId: _id, newTemplateId: insertedId, boardId: newBoardId, time: new Date().toISOString() });
     });
 
-    // [추가] API 템플릿 복사
+    // [추가] API 템플릿 복사 (parentTemplateId 매핑)
     const apiTemplates = ApiTemplates.find({ boardId: oldId }).fetch();
     apiTemplates.forEach(template => {
       const { _id, ...rest } = template;
-      ApiTemplates.insert({
+      let newParentTemplateId = rest.parentTemplateId;
+      if (cardTemplateIdMap[rest.parentTemplateId]) {
+        newParentTemplateId = cardTemplateIdMap[rest.parentTemplateId];
+      }
+      const insertedId = ApiTemplates.insert({
         ...rest,
-        boardId: _id, // 새 보드의 id로 변경
+        boardId: newBoardId,
+        parentTemplateId: newParentTemplateId,
         createdAt: new Date(),
+        modifiedAt: new Date(),
       });
+      console.log('[API 템플릿 복사]', { oldApiTemplateId: _id, newApiTemplateId: insertedId, boardId: newBoardId, parentTemplateId: newParentTemplateId, time: new Date().toISOString() });
     });
 
     // Re-set Watchers to reenable notification
