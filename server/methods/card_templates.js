@@ -32,7 +32,7 @@ Meteor.methods({
           headers: {
             'Content-Type': 'application/json'
           },
-          timeout: 5000
+          timeout: 20000
         });
       } catch (httpError) {
         console.error('HTTP 요청 실패:', httpError);

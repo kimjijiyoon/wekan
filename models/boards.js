@@ -9,6 +9,7 @@ import {
   TYPE_TEMPLATE_CONTAINER,
 } from '/config/const';
 import Users from "./users";
+import { CardTemplates, ApiTemplates } from './cardTemplates';
 
 // const escapeForRegex = require('escape-string-regexp');
 
@@ -651,10 +652,10 @@ Boards.helpers({
     const _id = Boards.insert(this);
 
     // Temporary remove watchers to disable notifications
-      Boards.update(_id, {
-        $set: {
-          watchers: []
-        },
+    Boards.update(_id, {
+      $set: {
+        watchers: []
+      },
     });
 
     // Copy all swimlanes in board
@@ -706,6 +707,28 @@ Boards.helpers({
       rule.actionId = actionsMap[rule.actionId];
       rule.triggerId = triggersMap[rule.triggerId];
       Rules.insert(rule);
+    });
+
+    // [추가] 카드 템플릿 복사
+    const cardTemplates = CardTemplates.find({ boardId: oldId }).fetch();
+    cardTemplates.forEach(template => {
+      const { _id, ...rest } = template;
+      CardTemplates.insert({
+        ...rest,
+        boardId: _id, // 새 보드의 id로 변경
+        createdAt: new Date(),
+      });
+    });
+
+    // [추가] API 템플릿 복사
+    const apiTemplates = ApiTemplates.find({ boardId: oldId }).fetch();
+    apiTemplates.forEach(template => {
+      const { _id, ...rest } = template;
+      ApiTemplates.insert({
+        ...rest,
+        boardId: _id, // 새 보드의 id로 변경
+        createdAt: new Date(),
+      });
     });
 
     // Re-set Watchers to reenable notification
@@ -2236,7 +2259,7 @@ if (Meteor.isServer) {
       });
     }
   });
-  
+
   /**
    * @operation add_board_label
    * @summary Add a label to a board
