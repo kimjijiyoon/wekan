@@ -236,10 +236,19 @@ Template.selectListPopup.events({
         });
       }
     });
+
+    // 카드 생성
+    let description = template.description;
+    if (description && description.includes('createTime:')) {
+      const now = new Date();
+      const pad = n => n < 10 ? '0' + n : n;
+      const formattedNow = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+      description = description.replace(/createTime:[^\n]*/, `createTime: ${formattedNow}`);
+    }
     // 카드 생성
     Cards.insert({
       title: cardTitle,
-      description: template.description,
+      description: description,
       listId: listId,
       boardId: boardId,
       swimlaneId: swimlaneId,
@@ -452,23 +461,20 @@ BlazeComponent.extendComponent({
               console.log('템플릿 수정 성공');
               alert('템플릿이 저장되었습니다.');
 
-              // URL이 변경된 경우 API 템플릿 업데이트
-              if (oldTemplate.url !== url) {
-                // 서버 메서드 호출
-                Meteor.call('updateApiTemplates', {
-                  parentTemplateId: templateId,
-                  url: url,
-                  boardId: oldTemplate.boardId
-                }, (error) => {
-                  if (error) {
-                    console.error('API 템플릿 업데이트 실패:', error);
-                    alert('API 템플릿 업데이트에 실패했습니다.');
-                  } else {
-                    console.log('API 템플릿 업데이트 성공');
-                    alert('API 템플릿이 업데이트되었습니다.');
-                  }
-                });
-              }
+              // 서버 메서드 호출
+              Meteor.call('updateApiTemplates', {
+                parentTemplateId: templateId,
+                url: url,
+                boardId: oldTemplate.boardId
+              }, (error) => {
+                if (error) {
+                  console.error('API 템플릿 업데이트 실패:', error);
+                  alert('API 템플릿 업데이트에 실패했습니다.');
+                } else {
+                  console.log('API 템플릿 업데이트 성공');
+                  alert('API 템플릿이 업데이트되었습니다.');
+                }
+              });
             }
           });
         }
