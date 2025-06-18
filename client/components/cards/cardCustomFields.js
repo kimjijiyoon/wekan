@@ -83,7 +83,7 @@ CardCustomField.register('cardCustomField');
 
       if (apiUrl && Meteor && Meteor.call) {
         console.log(`[apiDropdown] 서버 메서드 호출 시작: url=${apiUrl}, method=${method}`);
-        Meteor.call('fetchApiDropdownOptions', apiUrl, method, (error, result) => {
+        Meteor.call('fetchApiDropdownData', apiUrl, method, (error, result) => {
           if (error) {
             console.error('[서버 API 호출 에러]', error);
           } else {
