@@ -104,21 +104,17 @@ CardCustomField.register('cardCustomField');
     });
   }
 
-  // 특정 depth의 옵션을 필터링하여 반환
+  // 특정 depth의 옵션을 필터링하여 반환 (path 기반 flat array 전용)
   getFilteredOptions(depth) {
     const allOptions = this.allOptions.get() || [];
     const currentSelection = this.currentSelection.get() || {};
 
-    console.log(`[depth ${depth} 옵션 필터링]`, {
-      currentSelection,
-      allOptions
-    });
+    // path가 없는 경우(트리형 구조)면 빈 배열 반환
+    if (!allOptions.length || !allOptions[0].path) return [];
 
     // 상위 depth의 선택값과 일치하는 옵션만 필터링
     const filteredOptions = allOptions.filter(item => {
       const parts = item.path.split('/');
-
-      // 상위 depth의 모든 선택값과 일치하는지 확인
       for (let i = 0; i < depth; i++) {
         if (currentSelection[i] && parts[i] !== currentSelection[i]) {
           return false;
@@ -127,12 +123,12 @@ CardCustomField.register('cardCustomField');
       return true;
     });
 
-    // 현재 depth의 고유한 값만 추출
+    // 현재 depth의 고유한 값만 추출 (빈 값 제외)
     const uniqueValues = new Set(
-      filteredOptions.map(item => item.path.split('/')[depth])
+      filteredOptions
+        .map(item => item.path.split('/')[depth])
+        .filter(v => v !== undefined && v !== '')
     );
-
-    console.log(`[depth ${depth} 필터링된 결과]`, Array.from(uniqueValues));
 
     return Array.from(uniqueValues).map(value => ({
       _id: value,
@@ -140,28 +136,41 @@ CardCustomField.register('cardCustomField');
     }));
   }
 
-  getSelectedValues() {
-    return this.selectedValues.get() || [];
-  }
-
-  hasSelectedValues() {
-    const values = this.selectedValues.get() || [];
-    return values.length > 0;
-  }
-
-  isSelected(id, depth) {
-    const currentSelection = this.currentSelection.get() || {};
-    return currentSelection[depth] === id;
-  }
-
+  // 트리 구조 기반 옵션 반환
   getItemsForDepth0() {
+    const tree = this.optionsTree.get();
+    if (tree && tree.length) {
+      return tree.map(item => ({ _id: item.value, name: item.label }));
+    }
+    // fallback
     return this.getFilteredOptions(0);
   }
   getItemsForDepth1() {
-    return this.maxExistingDepth.get() >= 1 ? this.getFilteredOptions(1) : [];
+    const tree = this.optionsTree.get();
+    const currentSelection = this.currentSelection.get() || {};
+    if (tree && tree.length && currentSelection[0]) {
+      const parent = tree.find(item => item.value === currentSelection[0]);
+      if (parent && parent.children) {
+        return parent.children.map(item => ({ _id: item.value, name: item.label }));
+      }
+    }
+    // fallback
+    return this.getFilteredOptions(1);
   }
   getItemsForDepth2() {
-    return this.maxExistingDepth.get() >= 2 ? this.getFilteredOptions(2) : [];
+    const tree = this.optionsTree.get();
+    const currentSelection = this.currentSelection.get() || {};
+    if (tree && tree.length && currentSelection[0] && currentSelection[1]) {
+      const parent = tree.find(item => item.value === currentSelection[0]);
+      if (parent && parent.children) {
+        const child = parent.children.find(item => item.value === currentSelection[1]);
+        if (child && child.children) {
+          return child.children.map(item => ({ _id: item.value, name: item.label }));
+        }
+      }
+    }
+    // fallback
+    return this.getFilteredOptions(2);
   }
   showDepth1() {
     return this.maxExistingDepth.get() >= 1;
@@ -177,6 +186,30 @@ CardCustomField.register('cardCustomField');
   }
   isSelectedDepth2(id) {
     return this.isSelected(id, 2);
+  }
+
+  getSelectedValues() {
+    // selectedValues에 값이 있으면 그걸 반환
+    const selected = this.selectedValues && this.selectedValues.get && this.selectedValues.get();
+    if (selected && selected.length > 0) {
+      return selected;
+    }
+    // selectedValues가 비어있고, 카드에 값이 있으면 그걸 반환
+    const value = this.data().value;
+    if (value) {
+      return Array.isArray(value) ? value : [value];
+    }
+    return [];
+  }
+
+  hasSelectedValues() {
+    const values = this.selectedValues.get() || [];
+    return values.length > 0;
+  }
+
+  isSelected(id, depth) {
+    const currentSelection = this.currentSelection.get() || {};
+    return currentSelection[depth] === id;
   }
 
   events() {
@@ -209,15 +242,12 @@ CardCustomField.register('cardCustomField');
         event.preventDefault();
         const currentSelection = this.currentSelection.get() || {};
         const values = Object.values(currentSelection).filter(Boolean);
-
         if (values.length > 0) {
           const newPath = values.join('/');
           const selectedValues = this.selectedValues.get() || [];
-
           if (!selectedValues.includes(newPath)) {
             this.selectedValues.set([...selectedValues, newPath]);
           }
-
           // 선택 초기화
           this.currentSelection.set({});
           this.findAll('select').forEach(select => select.value = '');
@@ -250,7 +280,45 @@ CardCustomField.register('cardCustomField');
         // 최종 저장
         console.log('[저장한 값]', selectedValues);
         this.card.setCustomField(this.customFieldId, selectedValues);
-      }
+      },
+      // 저장된 값 클릭 시 currentSelection에 값 세팅 후 인라인 폼 열기 + 수정 인덱스 기억
+      'click .selected-tag'(event) {
+        event.preventDefault();
+        const value = event.currentTarget.innerText;
+        const parts = value.split('/');
+        const currentSelection = {};
+        parts.forEach((v, i) => { currentSelection[i] = v; });
+        this.currentSelection.set(currentSelection);
+        // 수정할 인덱스 기억
+        const index = $(event.currentTarget).index();
+        this.editIndex.set(index);
+        if (this.openForm) this.openForm();
+      },
+      // 변경(덮어쓰기) 버튼 클릭 시 해당 인덱스 값만 교체
+      'click .js-edit-value'(event) {
+        event.preventDefault();
+        const currentSelection = this.currentSelection.get() || {};
+        const value = Object.values(currentSelection).join('/');
+        const selectedValues = this.selectedValues.get() || [];
+        const editIndex = this.editIndex.get();
+        if (editIndex !== null && value) {
+          selectedValues[editIndex] = value;
+          this.selectedValues.set([...selectedValues]);
+          this.card.setCustomField(this.customFieldId, [...selectedValues]);
+          this.editIndex.set(null);
+          this.currentSelection.set({});
+          this.findAll('select').forEach(select => select.value = '');
+        }
+      },
+      // 인라인 폼 열기 버튼 클릭 시
+      'click .js-open-inlined-form'(event) {
+        event.preventDefault();
+        if (this.openForm) this.openForm();
+      },
+      // 인라인 폼 닫힐 때 수정 인덱스 초기화
+      'click .js-close-inlined-form'(event) {
+        if (this.editIndex) this.editIndex.set(null);
+      },
     }];
   }
 }.register('cardCustomField-apiDropdown'));

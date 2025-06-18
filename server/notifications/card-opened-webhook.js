@@ -211,6 +211,17 @@ if (Meteor.isServer) {
                   customFields: JSON.stringify(card.customFields, null, 2)
                 });
 
+                // apiDropdown value 파싱 함수
+                function parseApiDropdownValue(value) {
+                  // value 예시: "P0/A0/" 또는 "P0/A0/B0"
+                  const [CategoryCd, SecondCategoryCd, ThirdCategory] = (value || '').split('/');
+                  return {
+                    CategoryCd: CategoryCd || '',
+                    SecondCategoryCd: SecondCategoryCd || '',
+                    ThirdCategory: ThirdCategory || ''
+                  };
+                }
+
                 const customFieldsData = {};
                 if (card.customFields) {
                   card.customFields.forEach(field => {
@@ -227,8 +238,12 @@ if (Meteor.isServer) {
                     });
 
                     if (definition) {
-                      customFieldsData[definition.name] = Array.isArray(field.value) ?
-                      JSON.stringify(field.value, null) : field.value;
+                      if (definition.type === 'apiDropdown') {
+                        let v = Array.isArray(field.value) ? field.value[0] : field.value;
+                        customFieldsData[definition.name] = parseApiDropdownValue(v);
+                      } else {
+                        customFieldsData[definition.name] = Array.isArray(field.value) ? JSON.stringify(field.value, null) : field.value;
+                      }
                     }
                   });
                 }

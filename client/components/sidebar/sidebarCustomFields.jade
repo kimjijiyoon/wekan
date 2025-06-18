@@ -21,7 +21,7 @@ template(name="createCustomFieldPopup")
         label
             | {{_ 'name'}}
             unless _id
-                input.js-field-name(type="text" autofocus)
+                input.js-field-name(type="text" autofocus placeholder="{{placeholderForName}}")
             else
                 input.js-field-name(type="text" value=name)
 
@@ -58,9 +58,10 @@ template(name="createCustomFieldPopup")
             //-         else
             //-             option(value=value) {{name}}
 
-            label
-                | Depth Separator
-            input.js-field-depth-separator(type="text" value=getDepthSeparator placeholder="/")
+            // Depth Separator 입력란 숨김 처리 (트리형 API만 쓸 경우)
+            // label
+            //     | Depth Separator
+            // input.js-field-depth-separator(type="text" value=getDepthSeparator placeholder="/")
 
         div.js-field-settings.js-field-settings-currency(class="{{#if isTypeNotSelected 'currency'}}hide{{/if}}")
             label

@@ -141,6 +141,11 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
     return this.type.get() !== type;
   },
 
+  // apiDropdown 타입일 때만 placeholder로 'category' 반환
+  placeholderForName() {
+    return this.type.get() === 'apiDropdown' ? 'category' : '';
+  },
+
   getCurrencyCodes() {
     const currentCode = this.currencyCode.get();
 
@@ -176,10 +181,10 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
     return this.stringtemplateSeparator.get();
   },
 
-    // API URL 가져오기 헬퍼 추가
-    getApiUrl() {
-      return this.apiUrl.get();
-    },
+  // API URL 가져오기 헬퍼 추가
+  getApiUrl() {
+    return this.apiUrl.get();
+  },
 
   getSettings() {
     const settings = {};

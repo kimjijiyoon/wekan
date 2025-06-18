@@ -43,7 +43,10 @@ template(name="cardCustomField-apiDropdown")
             option(value=item._id selected=isSelectedDepth2(item._id))= item.name
 
       .edit-controls.clearfix
-        button.primary(type="submit") {{_ 'save'}}
+        if isEditIndexValid
+          button.primary.js-edit-value(type="button") {{_ 'change'}}
+        else
+          button.primary(type="submit") {{_ 'save'}}
         a.fa.fa-times-thin.js-close-inlined-form
     else
       a.js-open-inlined-form
