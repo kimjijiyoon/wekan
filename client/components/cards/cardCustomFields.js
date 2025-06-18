@@ -79,22 +79,31 @@ CardCustomField.register('cardCustomField');
       const settings = self.data().definition.settings;
       const apiUrl = settings.apiUrl;
       const method = (settings.apiMethod || 'GET').toLowerCase();
+      console.log('----------------[apiDropdown onCreated] settings', settings);
 
       if (apiUrl && HTTP[method]) {
         try {
-          HTTP[method](apiUrl, (error, result) => {
+          console.log(`[apiDropdown] API 호출 시작: url=${apiUrl}, method=${method}, timeout=40000`);
+          HTTP[method](apiUrl, {timeout: 40000}, (error, result) => {
             if (error) {
               console.error('[API 호출 에러]', error);
             } else {
-              console.log('[API 응답 데이터]', result.data);
-              self.allOptions.set(result.data);
-
-              // 실제 존재하는 최대 depth 계산
-              const maxDepth = Math.max(...result.data.map(item =>
-                item.path.split('/').length - 1
-              ));
-              console.log('[실제 최대 depth]', maxDepth);
-              self.maxExistingDepth.set(maxDepth);
+              console.log('[API 호출 성공] result:', result);
+              // API 응답이 3개 배열 구조면 트리로 변환
+              if (result.data && result.data.Category && result.data.SecondCategory && result.data.ThirdCategory) {
+                console.log('[API 응답 트리 구조 감지]');
+                const tree = buildApiDropdownTree(result.data);
+                self.optionsTree.set(tree);
+                self.maxExistingDepth.set(2);
+                console.log('[트리 구조 optionsTree]', tree);
+              } else {
+                // 기존 path 기반(flat array) 지원
+                console.log('[API 응답 flat array 감지]', result.data);
+                self.allOptions.set(result.data);
+                const maxDepth = Math.max(...result.data.map(item => item.path.split('/').length - 1));
+                self.maxExistingDepth.set(maxDepth);
+                console.log('[flat array allOptions]', result.data, 'maxDepth:', maxDepth);
+              }
             }
           });
         } catch (err) {
