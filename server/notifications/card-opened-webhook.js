@@ -238,9 +238,18 @@ if (Meteor.isServer) {
                     });
 
                     if (definition) {
+                      // if (definition.type === 'apiDropdown') {
+                      //   let v = Array.isArray(field.value) ? field.value[0] : field.value;
+                      //   customFieldsData[definition.name] = parseApiDropdownValue(v);
+                      // } else {
+                      //   customFieldsData[definition.name] = Array.isArray(field.value) ? JSON.stringify(field.value, null) : field.value;
+                      // }
                       if (definition.type === 'apiDropdown') {
-                        let v = Array.isArray(field.value) ? field.value[0] : field.value;
-                        customFieldsData[definition.name] = parseApiDropdownValue(v);
+                        if (Array.isArray(field.value)) {
+                          customFieldsData[definition.name] = field.value.map(v => parseApiDropdownValue(v));
+                        } else {
+                          customFieldsData[definition.name] = [parseApiDropdownValue(field.value)];
+                        }
                       } else {
                         customFieldsData[definition.name] = Array.isArray(field.value) ? JSON.stringify(field.value, null) : field.value;
                       }
