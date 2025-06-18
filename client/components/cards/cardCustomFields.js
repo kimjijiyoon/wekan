@@ -116,6 +116,7 @@ console.log('[cardCustomFields.js 파일 로드됨]');
     self.currentSelection = new ReactiveVar({}); // 현재 선택 중인 값
     self.maxExistingDepth = new ReactiveVar(0);  // 실제 존재하는 최대 depth 저장
     self.optionsTree = new ReactiveVar([]); // 트리 구조 옵션
+    self.apiLoaded = new ReactiveVar(false); // 최초 1회만 호출 플래그
 
     // 기존 값이 있으면 배열로 변환하여 설정
     const currentValue = this.data().value;
@@ -123,38 +124,33 @@ console.log('[cardCustomFields.js 파일 로드됨]');
       self.selectedValues.set(Array.isArray(currentValue) ? currentValue : [currentValue]);
     }
 
-    self.autorun(() => {
+    self.loadApiOptions = () => {
+      if (self.apiLoaded.get()) return;
+      self.apiLoaded.set(true);
       const settings = self.data().definition.settings;
-      console.log('----------------[apiDropdown onCreated] settings', settings);
-      const apiUrl = settings.apiUrl;
-      const method = (settings.apiMethod || 'GET').toLowerCase();
-
-      if (apiUrl && Meteor && Meteor.call) {
-        console.log(`[apiDropdown] 서버 메서드 호출 시작: url=${apiUrl}, method=${method}`);
-        Meteor.call('fetchApiDropdownData', apiUrl, method, (error, result) => {
-          if (error) {
-            console.error('[서버 API 호출 에러]', error);
-          } else {
-            console.log('[서버 API 호출 성공] result:', result);
-            // API 응답이 3개 배열 구조면 트리로 변환
-            if (result && result.Category && result.SecondCategory && result.ThirdCategory) {
-              console.log('[API 응답 트리 구조 감지]');
-              const tree = buildApiDropdownTree(result);
-              self.optionsTree.set(tree);
-              self.maxExistingDepth.set(2);
-              console.log('[트리 구조 optionsTree]', tree);
-            } else if (Array.isArray(result)) {
-              // 기존 path 기반(flat array) 지원
-              console.log('[API 응답 flat array 감지]', result);
-              self.allOptions.set(result);
-              const maxDepth = Math.max(...result.map(item => item.path.split('/').length - 1));
-              self.maxExistingDepth.set(maxDepth);
-              console.log('[flat array allOptions]', result, 'maxDepth:', maxDepth);
-            } else {
-              console.log('[API 응답 알 수 없음]', result);
-            }
-          }
-        });
+      // 외부 API 호출 대신 DB에 저장된 옵션 사용
+      const optionsData = settings.apiDropdownOptions;
+      if (optionsData && optionsData.Category && optionsData.SecondCategory && optionsData.ThirdCategory) {
+        console.log('[DB 옵션 트리 구조 감지]');
+        const tree = buildApiDropdownTree(optionsData);
+        self.optionsTree.set(tree);
+        self.maxExistingDepth.set(2);
+        console.log('[트리 구조 optionsTree]', tree);
+      } else if (Array.isArray(optionsData)) {
+        console.log('[DB 옵션 flat array 감지]', optionsData);
+        self.allOptions.set(optionsData);
+        const maxDepth = Math.max(...optionsData.map(item => item.path.split('/').length - 1));
+        self.maxExistingDepth.set(maxDepth);
+        console.log('[flat array allOptions]', optionsData, 'maxDepth:', maxDepth);
+      } else {
+        console.log('[DB 옵션 알 수 없음]', optionsData);
+      }
+    };
+    self.loadApiOptions();
+    // 외부에서 apiLoaded를 false로 바꾸면 다시 호출
+    this.autorun(() => {
+      if (self.apiLoaded.get() === false) {
+        self.loadApiOptions();
       }
     });
   }
@@ -314,6 +310,17 @@ console.log('[cardCustomFields.js 파일 로드됨]');
         const selectedValues = this.selectedValues.get() || [];
         selectedValues.splice(index, 1);
         this.selectedValues.set([...selectedValues]);
+        // 카드 데이터에도 반영
+        this.card.setCustomField(this.customFieldId, [...selectedValues]);
+        // 삭제한 인덱스가 현재 editIndex와 같으면 변경 모드 해제 및 폼 닫기
+        if (this.editIndex && typeof this.editIndex.get === 'function') {
+          if (this.editIndex.get() === index) {
+            this.editIndex.set(null);
+            if (this.closeForm) this.closeForm();
+          } else if (this.editIndex.get() > index) {
+            this.editIndex.set(this.editIndex.get() - 1);
+          }
+        }
       },
 
       'submit .js-card-customfield-apidropdown'(event) {
@@ -548,7 +555,6 @@ console.log('[cardCustomFields.js 파일 실행 완료]');
   }
 
   selectedItem() {
-    
     const value = this.data().value;
     if (!value) return TAPi18n.__('custom-field-dropdown-none');
 

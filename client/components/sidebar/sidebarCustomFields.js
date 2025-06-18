@@ -215,6 +215,7 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
         settings.apiMethod = this.apiMethod.get();
         settings.maxDepth = parseInt(this.maxDepth.get()) || 3;
         settings.depthSeparator = this.depthSeparator.get();
+        settings.apiDropdownOptions = [];
         break;
       }
     }
@@ -232,7 +233,8 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
             apiUrl: event.target.querySelector('.js-field-api-url').value,
             apiMethod: event.target.querySelector('.js-field-api-method').value,
             maxDepth: parseInt(event.target.querySelector('.js-field-max-depth').value) || 3,
-            depthSeparator: event.target.querySelector('.js-field-depth-separator').value || '/'
+            depthSeparator: event.target.querySelector('.js-field-depth-separator').value || '/',
+            apiDropdownOptions: []
           };
 
           CustomFields.insert({
@@ -349,15 +351,42 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
               this.find('.js-field-show-sum-at-top-of-list.is-checked') !== null,
           };
 
-          // insert or update
-          if (!this.data()._id) {
-            data.boardIds = [Session.get('currentBoard')];
-            CustomFields.insert(data);
+          // apiDropdown 타입이면 서버 API 호출 후 받아온 데이터 settings에 저장
+          if (data.type === 'apiDropdown') {
+            const apiUrl = data.settings.apiUrl;
+            const apiMethod = data.settings.apiMethod;
+            Meteor.call('fetchApiDropdownData', apiUrl, apiMethod, (err, apiData) => {
+              if (!err && apiData) {
+                data.settings.apiDropdownOptions = apiData;
+                console.log('----------------[apiDropdownOptions] apiData', apiData);
+                console.log('----------------[apiDropdownOptions] data', data);
+                console.log('----------------[apiDropdownOptions] apiDropdownOptions', data.settings.apiDropdownOptions);
+                // insert or update
+                if (!this.data()._id) {
+                  data.boardIds = [Session.get('currentBoard')];
+                  CustomFields.insert(data);
+                  console.log('----------------[insert] data', data);
+                } else {
+                  CustomFields.update(this.data()._id, { $set: data });
+                  console.log('----------------[update] data', data);
+                }
+                Popup.back();
+              } else {
+                alert('API 옵션 데이터를 불러오지 못했습니다.');
+              }
+            });
           } else {
-            CustomFields.update(this.data()._id, { $set: data });
+            // 기존 insert or update
+            if (!this.data()._id) {
+              data.boardIds = [Session.get('currentBoard')];
+              CustomFields.insert(data);
+              console.log('----------------[insert] data', data);
+            } else {
+              CustomFields.update(this.data()._id, { $set: data });
+              console.log('----------------[update] data', data);
+            }
+            Popup.back();
           }
-
-          Popup.back();
         },
         'click .js-delete-custom-field': Popup.afterConfirm(
           'deleteCustomField',
