@@ -81,34 +81,32 @@ CardCustomField.register('cardCustomField');
       const method = (settings.apiMethod || 'GET').toLowerCase();
       console.log('----------------[apiDropdown onCreated] settings', settings);
 
-      if (apiUrl && HTTP[method]) {
-        try {
-          console.log(`[apiDropdown] API 호출 시작: url=${apiUrl}, method=${method}, timeout=40000`);
-          HTTP[method](apiUrl, {timeout: 40000}, (error, result) => {
-            if (error) {
-              console.error('[API 호출 에러]', error);
+      if (apiUrl && Meteor && Meteor.call) {
+        console.log(`[apiDropdown] 서버 메서드 호출 시작: url=${apiUrl}, method=${method}`);
+        Meteor.call('fetchApiDropdownOptions', apiUrl, method, (error, result) => {
+          if (error) {
+            console.error('[서버 API 호출 에러]', error);
+          } else {
+            console.log('[서버 API 호출 성공] result:', result);
+            // API 응답이 3개 배열 구조면 트리로 변환
+            if (result && result.Category && result.SecondCategory && result.ThirdCategory) {
+              console.log('[API 응답 트리 구조 감지]');
+              const tree = buildApiDropdownTree(result);
+              self.optionsTree.set(tree);
+              self.maxExistingDepth.set(2);
+              console.log('[트리 구조 optionsTree]', tree);
+            } else if (Array.isArray(result)) {
+              // 기존 path 기반(flat array) 지원
+              console.log('[API 응답 flat array 감지]', result);
+              self.allOptions.set(result);
+              const maxDepth = Math.max(...result.map(item => item.path.split('/').length - 1));
+              self.maxExistingDepth.set(maxDepth);
+              console.log('[flat array allOptions]', result, 'maxDepth:', maxDepth);
             } else {
-              console.log('[API 호출 성공] result:', result);
-              // API 응답이 3개 배열 구조면 트리로 변환
-              if (result.data && result.data.Category && result.data.SecondCategory && result.data.ThirdCategory) {
-                console.log('[API 응답 트리 구조 감지]');
-                const tree = buildApiDropdownTree(result.data);
-                self.optionsTree.set(tree);
-                self.maxExistingDepth.set(2);
-                console.log('[트리 구조 optionsTree]', tree);
-              } else {
-                // 기존 path 기반(flat array) 지원
-                console.log('[API 응답 flat array 감지]', result.data);
-                self.allOptions.set(result.data);
-                const maxDepth = Math.max(...result.data.map(item => item.path.split('/').length - 1));
-                self.maxExistingDepth.set(maxDepth);
-                console.log('[flat array allOptions]', result.data, 'maxDepth:', maxDepth);
-              }
+              console.log('[API 응답 알 수 없음]', result);
             }
-          });
-        } catch (err) {
-          console.error('[HTTP 메서드 호출 에러]', err);
-        }
+          }
+        });
       }
     });
   }
