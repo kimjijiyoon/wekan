@@ -26,16 +26,59 @@ Template.cardCustomFieldsPopup.events({
   },
 });
 
+// === [apiDropdown 트리 변환 함수: 전역 선언] ===
+function buildApiDropdownTree(apiData) {
+  if (!apiData.Category || !apiData.SecondCategory || !apiData.ThirdCategory) return [];
+  // 1차 카테고리
+  const categories = apiData.Category.map(cat => ({
+    value: cat.CODE,
+    label: cat.name,
+    children: []
+  }));
+  // 2차 카테고리 연결
+  apiData.SecondCategory.forEach(sec => {
+    const parent = categories.find(cat => cat.value === sec.CategoryCd);
+    if (parent) {
+      parent.children.push({
+        value: sec.CODE,
+        label: sec.name,
+        children: []
+      });
+    }
+  });
+  // 3차 카테고리 연결
+  apiData.ThirdCategory.forEach(third => {
+    const parentCat = categories.find(cat => cat.value === third.CategoryCd);
+    if (parentCat) {
+      const parentSec = parentCat.children.find(sec => sec.value === third.SecondCategoryCd);
+      if (parentSec) {
+        parentSec.children.push({
+          value: third.CODE,
+          label: third.name
+        });
+      }
+    }
+  });
+  return categories;
+}
+
 // cardCustomField
 const CardCustomField = BlazeComponent.extendComponent({
   getTemplate() {
+    console.log('[CardCustomField getTemplate]', this.data());
     return `cardCustomField-${this.data().definition.type}`;
   },
 
   onCreated() {
+    console.log('[CardCustomField onCreated]');
     const self = this;
     self.card = Utils.getCurrentCard();
     self.customFieldId = this.data()._id;
+    console.log('[CardCustomField 초기화 완료]', {
+      card: self.card,
+      customFieldId: self.customFieldId
+    });
+    self.editIndex = new ReactiveVar(null); // 수정 중인 값의 인덱스
   },
 });
 CardCustomField.register('cardCustomField');
@@ -44,6 +87,7 @@ CardCustomField.register('cardCustomField');
 (class extends CardCustomField {
   onCreated() {
     super.onCreated();
+
   }
 
   events() {
@@ -59,6 +103,9 @@ CardCustomField.register('cardCustomField');
   }
 }.register('cardCustomField-text'));
 
+console.log('[cardCustomFields.js 파일 로드됨]');
+
+// cardCustomField-apiDropdown
 (class extends CardCustomField {
   onCreated() {
     console.log('[apiDropdown onCreated 시작]');
@@ -68,6 +115,7 @@ CardCustomField.register('cardCustomField');
     self.selectedValues = new ReactiveVar([]);
     self.currentSelection = new ReactiveVar({}); // 현재 선택 중인 값
     self.maxExistingDepth = new ReactiveVar(0);  // 실제 존재하는 최대 depth 저장
+    self.optionsTree = new ReactiveVar([]); // 트리 구조 옵션
 
     // 기존 값이 있으면 배열로 변환하여 설정
     const currentValue = this.data().value;
@@ -77,9 +125,9 @@ CardCustomField.register('cardCustomField');
 
     self.autorun(() => {
       const settings = self.data().definition.settings;
+      console.log('----------------[apiDropdown onCreated] settings', settings);
       const apiUrl = settings.apiUrl;
       const method = (settings.apiMethod || 'GET').toLowerCase();
-      console.log('----------------[apiDropdown onCreated] settings', settings);
 
       if (apiUrl && Meteor && Meteor.call) {
         console.log(`[apiDropdown] 서버 메서드 호출 시작: url=${apiUrl}, method=${method}`);
@@ -328,8 +376,21 @@ CardCustomField.register('cardCustomField');
       },
     }];
   }
+  editIndex() {
+    // null 또는 undefined면 null 반환, 0 이상이면 0 반환
+    return this.editIndex && typeof this.editIndex.get === 'function'
+      ? this.editIndex.get()
+      : null;
+  }
+  isEditIndexValid() {
+    const idx = this.editIndex && typeof this.editIndex.get === 'function'
+      ? this.editIndex.get()
+      : null;
+    return idx !== null && idx !== undefined;
+  }
 }.register('cardCustomField-apiDropdown'));
 
+console.log('[cardCustomFields.js 파일 실행 완료]');
 // cardCustomField-number
 (class extends CardCustomField {
   onCreated() {
@@ -419,10 +480,6 @@ CardCustomField.register('cardCustomField');
     return this.date.get().week().toString();
   }
 
-  showWeekOfYear() {
-    return ReactiveCache.getCurrentUser().isShowWeekOfYear();
-  }
-
   showDate() {
     // this will start working once mquandalle:moment
     // is updated to at least moment.js 2.10.5
@@ -491,12 +548,13 @@ CardCustomField.register('cardCustomField');
   }
 
   selectedItem() {
-    const selected = this._items.find(item => {
-      return item._id === this.data().value;
-    });
-    return selected
-      ? selected.name
-      : TAPi18n.__('custom-field-dropdown-unknown');
+    
+    const value = this.data().value;
+    if (!value) return TAPi18n.__('custom-field-dropdown-none');
+
+    // 선택된 값을 '>'로 구분하여 표시
+    const parts = value.split('/');
+    return parts.join(' > ');
   }
 
   events() {
