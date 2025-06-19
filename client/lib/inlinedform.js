@@ -50,7 +50,7 @@ InlinedForm = BlazeComponent.extendComponent({
   getValue() {
     const input = this.find('textarea,input[type=text]');
     // \s without \n + unicode (https://developer.mozilla.org/de/docs/Web/JavaScript/Guide/Regular_Expressions#special-white-space)
-    return this.isOpen.get() && input && input.value.replaceAll(/[ \f\r\t\v]+$/gm, '');
+    return this.isOpen.get() && input && input.value.replace(/[ \f\r\t\v]+$/gm, '');
   },
 
   events() {
