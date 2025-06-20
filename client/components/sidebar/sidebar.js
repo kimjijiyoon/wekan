@@ -245,6 +245,13 @@ Template.selectListPopup.events({
       const formattedNow = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
       description = description.replace(/createTime:[^\n]*/, `createTime: ${formattedNow}`);
     }
+    if (description && description.includes('ScrumId:')) {
+      const board = Boards.findOne(boardId);
+      const boardTitle = board && board.title; // 또는 .name
+      const match = boardTitle.match(/\[([^\]]+)\]/);
+      const boardName = match ? match[1] : ""; // 결과: "프로젝트A"
+      description = description.replace(/createTime:[^\n]*/, `createTime: ${boardName}`);
+    }
     // 카드 생성
     Cards.insert({
       title: cardTitle,
