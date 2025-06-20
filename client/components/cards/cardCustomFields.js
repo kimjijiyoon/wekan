@@ -128,21 +128,42 @@ console.log('[cardCustomFields.js 파일 로드됨]');
       if (self.apiLoaded.get()) return;
       self.apiLoaded.set(true);
       const settings = self.data().definition.settings;
+      const apiStructure = settings.apiStructure || 'tree';
+      const depthSeparator = settings.depthSeparator || '/';
       // 외부 API 호출 대신 DB에 저장된 옵션 사용
-      const optionsData = settings.apiDropdownOptions;
-      if (optionsData && optionsData.Category && optionsData.SecondCategory && optionsData.ThirdCategory) {
-        console.log('[DB 옵션 트리 구조 감지]');
+      const optionsData = settings.apiDropdownOptions?.data || [];
+      if (apiStructure === 'tree') {
+        console.log('[DB 옵션 트리 구조 감지]',optionsData);
         const tree = buildApiDropdownTree(optionsData);
         self.optionsTree.set(tree);
         self.maxExistingDepth.set(2);
         console.log('[트리 구조 optionsTree]', tree);
-      } else if (Array.isArray(optionsData)) {
+      } else if (apiStructure === 'string' && Array.isArray(optionsData)) {
         console.log('[DB 옵션 flat array 감지]', optionsData);
-        self.allOptions.set(optionsData);
-        const maxDepth = Math.max(...optionsData.map(item => item.path.split('/').length - 1));
+        // path 필드를 추가해서 저장
+        const flatOptions = optionsData.map(item => {
+          const key = Object.keys(item)[0];
+          const value = item[key];
+          return {
+            _id: key,
+            name: value,
+            path: value // path 필드 추가
+          };
+        });
+        self.allOptions.set(flatOptions);
+        const maxDepth = Math.max(
+          ...flatOptions.map(item => item.path.split(depthSeparator).length - 1)
+        );
         self.maxExistingDepth.set(maxDepth);
-        console.log('[flat array allOptions]', optionsData, 'maxDepth:', maxDepth);
-      } else {
+        console.log('[flat array allOptions]', flatOptions, 'maxDepth:', maxDepth);
+      } else if (optionsData && optionsData.Category && optionsData.SecondCategory && optionsData.ThirdCategory) {
+        console.log('[DB 옵션 트리 구조 감지]',optionsData);
+        const tree = buildApiDropdownTree(optionsData);
+        self.optionsTree.set(tree);
+        self.maxExistingDepth.set(2);
+        console.log('[트리 구조 optionsTree]', tree);
+      }
+      else {
         console.log('[DB 옵션 알 수 없음]', optionsData);
       }
     };

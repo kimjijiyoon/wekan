@@ -62,10 +62,16 @@ CustomFields.attachSchema(
       optional: true,
       defaultValue: '/'
     },
-    'settings.apiDropdownOptions': {  // API URL 설정 추가 -- 지윤 추가
+    'settings.apiDropdownOptions': { // API URL 설정 추가 -- 지윤 추가
       type: Object,
       optional: true,
       blackbox: true,
+    },
+    'settings.apiStructure' :{  // API URL 설정 추가 -- 지윤 추가
+      type: String,
+      optional: true,
+      allowedValues: ['tree', 'string'],
+      defaultValue: 'tree'
     },
     'settings.currencyCode': {
       type: String,

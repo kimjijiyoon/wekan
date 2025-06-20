@@ -124,6 +124,11 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
         ? this.data().settings.depthSeparator
         : '/'
     );
+    this.apiStructure = new ReactiveVar(
+      this.data().settings && this.data().settings.apiStructure
+        ? this.data().settings.apiStructure
+        : 'tree' // 기본값은 Tree
+    );
   },
 
   types() {
@@ -186,6 +191,39 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
     return this.apiUrl.get();
   },
 
+  getApiMethods() {
+    const currentMethod = this.data().settings?.apiMethod || 'POST';
+    return [
+      { value: 'POST', name: 'POST', selected: currentMethod === 'POST' },
+      { value: 'GET', name: 'GET', selected: currentMethod === 'GET' }
+    ];
+  },
+
+  getDepthLevels() {
+    const currentDepth = this.data().settings?.maxDepth || 3;
+    return [
+      { value: '1', name: '1', selected: currentDepth === 1 },
+      { value: '2', name: '2', selected: currentDepth === 2 },
+      { value: '3', name: '3', selected: currentDepth === 3 }
+    ];
+  },
+
+  getApiStructures() {
+    const currentStructure = this.apiStructure.get();
+    const structures = [
+      { value: 'tree', name: 'Tree (Category/Second/Third)' },
+      { value: 'string', name: 'String (path 기반)' },
+    ];
+    return structures.map(s => {
+      s.selected = (s.value === currentStructure);
+      return s;
+    });
+  },
+
+  isApiStructureString() {
+    return this.apiStructure.get() === 'string';
+  },
+
   getSettings() {
     const settings = {};
     switch (this.type.get()) {
@@ -215,7 +253,7 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
         settings.apiMethod = this.apiMethod.get();
         settings.maxDepth = parseInt(this.maxDepth.get()) || 3;
         settings.depthSeparator = this.depthSeparator.get();
-        settings.apiDropdownOptions = [];
+        settings.apiStructure = this.apiStructure.get();
         break;
       }
     }
@@ -234,7 +272,7 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
             apiMethod: event.target.querySelector('.js-field-api-method').value,
             maxDepth: parseInt(event.target.querySelector('.js-field-max-depth').value) || 3,
             depthSeparator: event.target.querySelector('.js-field-depth-separator').value || '/',
-            apiDropdownOptions: []
+            //apiDropdownOptions: []
           };
 
           CustomFields.insert({
@@ -357,7 +395,20 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
             const apiMethod = data.settings.apiMethod;
             Meteor.call('fetchApiDropdownData', apiUrl, apiMethod, (err, apiData) => {
               if (!err && apiData) {
-                data.settings.apiDropdownOptions = apiData;
+                // API 응답이 문자열로 올 경우를 대비해 추가 파싱
+                let parsedData = apiData;
+                // 만약 apiData가 문자열이라면 JSON으로 파싱 시도
+                if (typeof apiData === 'string') {
+                  try {
+                    parsedData = JSON.parse(apiData);
+                  } catch (parseError) {
+                    alert('API 응답 파싱에 실패했습니다.');
+                    return;
+                  }
+                }
+
+                // 데이터 불일치 문제를 해결하기 위해, DB 업데이트 직전에 모든 데이터를 새로 조합합니다.
+                data.settings.apiDropdownOptions = { data: parsedData };
                 console.log('----------------[apiDropdownOptions] apiData', apiData);
                 console.log('----------------[apiDropdownOptions] data', data);
                 console.log('----------------[apiDropdownOptions] apiDropdownOptions', data.settings.apiDropdownOptions);
@@ -373,6 +424,7 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
                 Popup.back();
               } else {
                 alert('API 옵션 데이터를 불러오지 못했습니다.');
+                console.error('[Meteor Call Error]', err);
               }
             });
           } else {
@@ -404,6 +456,9 @@ const CreateCustomFieldPopup = BlazeComponent.extendComponent({
             Popup.back();
           },
         ),
+        'change .js-api-structure'(evt) {
+          this.apiStructure.set(evt.target.value);
+        },
       },
     ];
   },
@@ -423,21 +478,3 @@ CreateCustomFieldPopup.register('createCustomFieldPopup');
     Popup.back();
   }
 });*/
-
-Template.createCustomFieldPopup.helpers({
-  getApiMethods() {
-    const currentMethod = Template.currentData().settings?.apiMethod || 'POST';
-    return [
-      { value: 'POST', name: 'POST', selected: currentMethod === 'POST' },
-      { value: 'GET', name: 'GET', selected: currentMethod === 'GET' }
-    ];
-  },
-  getDepthLevels() {
-    const currentDepth = Template.currentData().settings?.maxDepth || 3;
-    return [
-      { value: '1', name: '1', selected: currentDepth === 1 },
-      { value: '2', name: '2', selected: currentDepth === 2 },
-      { value: '3', name: '3', selected: currentDepth === 3 }
-    ];
-  }
-});

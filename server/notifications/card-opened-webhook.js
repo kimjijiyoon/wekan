@@ -212,13 +212,16 @@ if (Meteor.isServer) {
                 });
 
                 // apiDropdown value 파싱 함수
-                function parseApiDropdownValue(value) {
+                function parseApiDropdownValue(value, apiUrl) {
+                  //const fileName = (apiUrl.split('?').pop().split('fileName=')[1] || 'defaultName');
+                  //console.log('[파싱된 fileName]', fileName);
                   // value 예시: "P0/A0/" 또는 "P0/A0/B0"
                   const [CategoryCd, SecondCategoryCd, ThirdCategory] = (value || '').split('/');
                   return {
                     CategoryCd: CategoryCd || '',
                     SecondCategoryCd: SecondCategoryCd || '',
-                    ThirdCategory: ThirdCategory || ''
+                    ThirdCategory: ThirdCategory || '',
+                    //fileName: fileName
                   };
                 }
 
@@ -228,7 +231,7 @@ if (Meteor.isServer) {
                     console.log('[커스텀 필드 처리]', {
                       fieldId: field._id,
                       fieldValue: Array.isArray(field.value) ?
-                       JSON.stringify(field.value, null) : field.value
+                      JSON.stringify(field.value, null) : field.value
                     });
 
                     const definition = ReactiveCache.getCustomField(field._id);
@@ -245,10 +248,16 @@ if (Meteor.isServer) {
                       //   customFieldsData[definition.name] = Array.isArray(field.value) ? JSON.stringify(field.value, null) : field.value;
                       // }
                       if (definition.type === 'apiDropdown') {
-                        if (Array.isArray(field.value)) {
-                          customFieldsData[definition.name] = field.value.map(v => parseApiDropdownValue(v));
+                        const apiStructure = definition.settings.apiStructure || 'tree';
+                        if (apiStructure && apiStructure === 'string') {
+                          customFieldsData[definition.name] = Array.isArray(field.value) ? field.value : [field.value];
                         } else {
-                          customFieldsData[definition.name] = [parseApiDropdownValue(field.value)];
+                          // Tree 구조일 때: 현재처럼 파싱
+                          if (Array.isArray(field.value)) {
+                            customFieldsData[definition.name] = field.value.map(v => parseApiDropdownValue(v));
+                          } else {
+                            customFieldsData[definition.name] = [parseApiDropdownValue(field.value , definition.settings.apiUrl)];
+                          }
                         }
                       } else {
                         customFieldsData[definition.name] = Array.isArray(field.value) ? JSON.stringify(field.value, null) : field.value;

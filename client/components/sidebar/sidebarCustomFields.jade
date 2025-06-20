@@ -58,10 +58,21 @@ template(name="createCustomFieldPopup")
             //-         else
             //-             option(value=value) {{name}}
 
-            // Depth Separator 입력란 숨김 처리 (트리형 API만 쓸 경우)
-            // label
-            //     | Depth Separator
-            // input.js-field-depth-separator(type="text" value=getDepthSeparator placeholder="/")
+            // Tree vs String 구조 선택 (Select 박스로 변경)
+            label
+              | API 데이터 구조
+            select.js-api-structure
+              each getApiStructures
+                if selected
+                    option(value=value selected="selected") {{name}}
+                else
+                    option(value=value) {{name}}
+
+            // String 구조일 때만 Depth Separator 보이게
+            if isApiStructureString
+              label
+                  | Depth Separator
+              input.js-field-depth-separator(type="text" value=getDepthSeparator placeholder="/")
 
         div.js-field-settings.js-field-settings-currency(class="{{#if isTypeNotSelected 'currency'}}hide{{/if}}")
             label
