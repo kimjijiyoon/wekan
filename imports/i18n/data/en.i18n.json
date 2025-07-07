@@ -668,6 +668,7 @@
   "smtp-tls": "TLS support",
   "send-from": "From",
   "send-smtp-test": "Send a test email to yourself",
+  "send-webhook": "Send Webhook",
   "invitation-code": "Invitation Code",
   "email-invite-register-subject": "__inviter__ sent you an invitation",
   "email-invite-register-text": "Dear __user__,\n\n__inviter__ invites you to kanban board for collaborations.\n\nPlease follow the link below:\n__url__\n\nAnd your invitation code is: __icode__\n\nThanks.",

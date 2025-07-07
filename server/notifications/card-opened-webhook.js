@@ -14,6 +14,9 @@ if (Meteor.isServer) {
   Meteor.startup(() => {
     console.log("[초기화] 카드 이동 감지 준비 중...");
 
+    // 전역 함수 설정
+    global.sendCardWebhookManual = sendCardWebhookManual;
+
     const boardStartLists = {};
 
     // "시작" 리스트 관찰 및 업데이트 함수
@@ -402,4 +405,259 @@ function sendWebhook(payload, webhookUrls) {
     });
   });
 }
+
+// 수동 웹훅 전송용 공통 함수 (기존 로직과 동일하게 구현)
+async function sendCardWebhookManual(card, eventType = 'manualWebhookTrigger') {
+  try {
+    // 라벨 ID를 라벨명으로 변환하는 함수
+    const getLabelNames = (labelIds) => {
+      if (!labelIds || labelIds.length === 0) return [];
+
+      const board = ReactiveCache.getBoard(card.boardId);
+      if (!board) return [];
+
+      return labelIds
+        .map(labelId => {
+          const label = board.getLabelById(labelId);
+          return label ? label.name : null;
+        })
+        .filter(labelName => labelName);
+    };
+
+    // 멤버와 담당자 정보 가져오기
+    const members = card.members ? card.members.map(memberId => {
+      const user = ReactiveCache.getUser(memberId);
+      return user ? user.username : null;
+    }).filter(Boolean) : [];
+
+    const assignees = card.assignees ? card.assignees.map(assigneeId => {
+      const user = ReactiveCache.getUser(assigneeId);
+      return user ? user.username : null;
+    }).filter(Boolean) : [];
+
+    // 리스트 이름 가져오기
+    const list = Lists.findOne({ _id: card.listId });
+    const listName = list ? list.title : null;
+
+    // 라벨 이름 가져오기
+    const labels = getLabelNames(card.labelIds);
+
+    // 사용자 정보 가져오기
+    const user = Users.findOne({ _id: card.userId });
+    const userName = user ? user.username : 'Unknown';
+
+    // 보드 이름 가져오기
+    const board = Boards.findOne({ _id: card.boardId });
+    const boardName = board ? board.title : null;
+
+    // swimlaneName 가져오기
+    let swimlaneName = null;
+    if (card.swimlaneId) {
+      const swimlane = Swimlanes.findOne({ _id: card.swimlaneId });
+      swimlaneName = swimlane ? swimlane.title : null;
+    }
+
+    // apiDropdown value 파싱 함수 (기존과 동일)
+    function parseApiDropdownValue(value, apiUrl) {
+      const [CategoryCd, SecondCategoryCd, ThirdCategory] = (value || '').split('/');
+      return {
+        CategoryCd: CategoryCd || '',
+        SecondCategoryCd: SecondCategoryCd || '',
+        ThirdCategory: ThirdCategory || '',
+      };
+    }
+
+    const customFieldsData = {};
+    if (card.customFields) {
+      card.customFields.forEach(field => {
+        console.log('[커스텀 필드 처리]', {
+          fieldId: field._id,
+          fieldValue: Array.isArray(field.value) ?
+          JSON.stringify(field.value, null) : field.value
+        });
+
+        const definition = ReactiveCache.getCustomField(field._id);
+        console.log('[커스텀 필드 정의]', {
+          fieldId: field._id,
+          definition: definition
+        });
+
+        if (definition) {
+          if (definition.type === 'apiDropdown') {
+            const apiStructure = definition.settings.apiStructure || 'tree';
+            if (apiStructure && apiStructure === 'string') {
+              customFieldsData[definition.name] = Array.isArray(field.value) ? field.value : [field.value];
+            } else {
+              // Tree 구조일 때: 현재처럼 파싱
+              if (Array.isArray(field.value)) {
+                customFieldsData[definition.name] = field.value.map(v => parseApiDropdownValue(v));
+              } else {
+                customFieldsData[definition.name] = [parseApiDropdownValue(field.value, definition.settings.apiUrl)];
+              }
+            }
+          } else {
+            customFieldsData[definition.name] = Array.isArray(field.value) ? JSON.stringify(field.value, null) : field.value;
+          }
+        }
+      });
+    }
+
+    console.log('[수집된 커스텀 필드 데이터]',  JSON.stringify(customFieldsData, null));
+
+    const payload = {
+      event: eventType,
+      card: {
+        id: card._id,
+        boardId: card.boardId,
+        boardName: boardName || null,
+        swimlaneName: swimlaneName || null,
+        swimlaneId: card.swimlaneId,
+        title: card.title,
+        description: card.description || null,
+        listName: listName || null,
+        labels: labels.length > 0 ? labels : null,
+        user: userName || null,
+        customFields: Object.keys(customFieldsData).length > 0 ?
+          JSON.parse(JSON.stringify(customFieldsData)) : null,
+        members: members.length > 0 ? members : null,
+        assignees: assignees.length > 0 ? assignees : null,
+        dates: {
+          received: card.receivedAt || null,
+          start: card.startAt || null,
+          due: card.dueAt || null,
+          end: card.endAt || null
+        },
+        attachments: []
+      },
+    };
+
+    // 첨부파일 정보 수집 (기존과 동일)
+    const attachments = Attachments.find({ 'meta.cardId': card._id }).fetch();
+    if (attachments && attachments.length > 0) {
+      const attachmentPromises = attachments.map(attachment => {
+        return new Promise((resolve, reject) => {
+          const attachmentInfo = {
+            id: attachment._id,
+            name: attachment.meta.originalName || attachment.name,
+            type: attachment.meta.originalType || attachment.type,
+            size: attachment.size,
+            uploadedAt: attachment.uploadedAt,
+            storageStrategy: attachment.meta.storageStrategy || 'filesystem',
+            url: null,
+            data: null,
+            isModified: attachment.meta.isModified || false
+          };
+
+          try {
+            // GridFS 파일인 경우
+            if (attachment.meta.storageStrategy === 'gridfs' && attachment.meta.gridFsFileId) {
+              attachmentInfo.gridFsFileId = attachment.meta.gridFsFileId;
+              const gridFsFile = GridFSFiles.findOne({ _id: attachment.meta.gridFsFileId });
+              if (gridFsFile) {
+                attachmentInfo.url = gridFsFile.link();
+              }
+            } else {
+              // 일반 파일시스템 파일인 경우
+              const fileUrl = Attachments.findOne(attachment._id).link();
+              if (fileUrl) {
+                attachmentInfo.url = fileUrl;
+              }
+
+              const fileObj = Attachments.findOne(attachment._id);
+              if (fileObj && fileObj.versions && fileObj.versions.original && fileObj.versions.original.path) {
+                try {
+                  const fileData = fs.readFileSync(fileObj.versions.original.path);
+                  attachmentInfo.data = fileData.toString('base64');
+                } catch (error) {
+                  console.error(`[파일 읽기 실패] ${attachment._id}:`, error);
+                }
+              }
+            }
+            resolve(attachmentInfo);
+          } catch (error) {
+            console.error(`[첨부파일 처리 실패] ${attachment._id}:`, error);
+            resolve(attachmentInfo); // 에러가 발생해도 기본 정보는 전달
+          }
+        });
+      });
+
+      const attachmentData = await Promise.all(attachmentPromises);
+      payload.card.attachments = attachmentData;
+    }
+
+    // 웹훅 URL 수집 (기존과 동일) - 중복 제거 추가
+    const webhookUrlsSet = new Set(); // 중복 제거를 위한 Set 사용
+
+    const integration = ReactiveCache.getIntegration({ boardId: card.boardId });
+    if (integration && integration.url) {
+      webhookUrlsSet.add(integration.url);
+    }
+
+    // 글로벌 웹훅 추가
+    const globalIntegrations = Integrations.find({
+      type: 'outgoing-webhooks',
+      boardId: '_global',
+      enabled: true
+    }).fetch();
+
+    globalIntegrations.forEach(integration => {
+      if (integration.url) {
+        webhookUrlsSet.add(integration.url);
+      }
+    });
+
+    const webhookUrls = Array.from(webhookUrlsSet); // Set을 배열로 변환
+
+    console.log(`[수동 웹훅] 수집된 웹훅 URL:`, webhookUrls);
+
+    if (webhookUrls.length === 0) {
+      console.warn(`[경고] 보드(${card.boardId})의 웹훅 URL과 글로벌 웹훅 URL을 모두 찾을 수 없습니다.`);
+      return { success: false, message: '설정된 웹훅 URL이 없습니다.' };
+    }
+
+    console.log(`[수동 웹훅] 전송할 데이터:`, JSON.stringify(payload, null, 2));
+
+    // 웹훅 전송 (기존 sendWebhook 함수 사용)
+    const sendPromises = webhookUrls.map(url => {
+      return new Promise((resolve, reject) => {
+        HTTP.post(url, {
+          data: payload,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-File-Transfer': 'binary'
+          }
+        }, (err, res) => {
+          if (err) {
+            console.error(`[수동 웹훅 실패] URL(${url}):`, err);
+            reject(err);
+          } else {
+            console.log(`[수동 웹훅 성공] URL(${url}):`, res.statusCode);
+            resolve(res);
+          }
+        });
+      });
+    });
+
+    await Promise.all(sendPromises);
+
+    return {
+      success: true,
+      message: `웹훅이 ${webhookUrls.length}개의 URL로 전송되었습니다.`,
+      urls: webhookUrls
+    };
+
+  } catch (error) {
+    console.error(`[수동 웹훅 오류] 카드(${card._id}):`, error);
+    throw error;
+  }
+}
+
+// 전역에서 사용할 수 있도록 export
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { sendCardWebhookManual };
+} else if (typeof global !== 'undefined') {
+  global.sendCardWebhookManual = sendCardWebhookManual;
+}
+
+
 

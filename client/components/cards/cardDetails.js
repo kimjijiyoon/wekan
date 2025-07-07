@@ -612,6 +612,30 @@ Template.cardDetailsActionsPopup.events({
   'click .js-convert-checklist-item-to-card': Popup.open('convertChecklistItemToCard'),
   'click .js-copy-checklist-cards': Popup.open('copyManyCards'),
   'click .js-set-card-color': Popup.open('setCardColor'),
+    'click .js-send-webhook'(event) {
+    event.preventDefault();
+
+    const card = this;
+    const $button = $(event.target).closest('.js-send-webhook');
+
+    // 버튼 비활성화 및 로딩 상태 표시
+    $button.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> 전송중...');
+
+    // 웹훅 전송 메서드 호출
+    Meteor.call('sendManualWebhook', card._id, (error, result) => {
+      // 버튼 복원
+      $button.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> 웹훅 전송');
+
+      if (error) {
+        console.error('웹훅 전송 실패:', error);
+        alert('웹훅 전송에 실패했습니다: ' + error.reason);
+      } else {
+        console.log('웹훅 전송 성공:', result);
+        alert('웹훅이 성공적으로 전송되었습니다!');
+        Popup.close();
+      }
+    });
+  },
   'click .js-move-card-to-top'(event) {
     event.preventDefault();
     const minOrder = this.getMinSort();

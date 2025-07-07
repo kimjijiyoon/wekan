@@ -1,6 +1,23 @@
 import { HTTP } from 'meteor/http';
 import { check } from 'meteor/check';
 
+// 웹훅 공통 함수 import
+let sendCardWebhookManual;
+if (Meteor.isServer) {
+  try {
+    // card-opened-webhook.js에서 export한 함수 가져오기
+    if (typeof global !== 'undefined' && global.sendCardWebhookManual) {
+      sendCardWebhookManual = global.sendCardWebhookManual;
+    } else {
+      // 파일에서 직접 require (fallback)
+      const webhookModule = require('./notifications/card-opened-webhook');
+      sendCardWebhookManual = webhookModule.sendCardWebhookManual;
+    }
+  } catch (error) {
+    console.error('[sendCardWebhookManual import 실패]', error);
+  }
+}
+
 Meteor.methods({
   async fetchApiDropdownData(url, method = 'POST') {
     check(url, String);
@@ -62,6 +79,36 @@ Meteor.methods({
           details: error.response?.content
         }
       );
+    }
+  },
+
+  async sendManualWebhook(cardId) {
+    check(cardId, String);
+
+    console.log(`[수동 웹훅] 카드(${cardId}) 웹훅 전송 시작`);
+
+    try {
+      const card = Cards.findOne({ _id: cardId });
+      if (!card) {
+        throw new Meteor.Error('card-not-found', '카드를 찾을 수 없습니다.');
+      }
+
+      if (!sendCardWebhookManual) {
+        throw new Meteor.Error('webhook-function-not-available', '웹훅 함수를 사용할 수 없습니다.');
+      }
+
+      // 공통 웹훅 함수 사용
+      const result = await sendCardWebhookManual(card, 'manualWebhookTrigger');
+
+      if (!result.success) {
+        throw new Meteor.Error('webhook-send-failed', result.message);
+      }
+
+      return result;
+
+    } catch (error) {
+      console.error(`[수동 웹훅 오류] 카드(${cardId}):`, error);
+      throw new Meteor.Error('webhook-send-failed', error.reason || error.message);
     }
   }
 });

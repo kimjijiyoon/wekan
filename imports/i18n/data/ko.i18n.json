@@ -668,6 +668,7 @@
   "smtp-tls": "TLS 지원",
   "send-from": "보낸 사람",
   "send-smtp-test": "Send a test email to yourself",
+  "send-webhook": "웹훅 전송",  
   "invitation-code": "초대 코드",
   "email-invite-register-subject": "\"__inviter__ 님이 당신에게 초대장을 보냈습니다.",
   "email-invite-register-text": "Dear __user__,\n\n__inviter__ invites you to kanban board for collaborations.\n\nPlease follow the link below:\n__url__\n\nAnd your invitation code is: __icode__\n\nThanks.",
