@@ -245,23 +245,24 @@ Template.selectListPopup.events({
       const formattedNow = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
       description = description.replace(/createTime:[^\n]*/, `createTime: ${formattedNow}`);
     }
-    if (description && description.includes('ScrumId:')) {
-      const board = Boards.findOne(boardId);
-      const boardTitle = board?.title || "";
+    // if (description && description.includes('ScrumId:')) {
+    //   const board = Boards.findOne(boardId);
+    //   const boardTitle = board?.title || "";
       
-      let boardName = "";
-      if (boardTitle) {
-        const match = boardTitle.match(/\[([^\]]+)\]/);
-        if (match && match[1]) {
-          boardName = match[1]; // 대괄호 안의 내용
-          description = description.replace(/ScrumId:[^\n]*/, `ScrumId: ${boardName}`);
-        } else {
-          boardName = boardTitle; // 대괄호가 없으면 전체 제목
-        }
-      } else {
-        boardName = "Unknown"; // 보드를 찾을 수 없는 경우
-      }
-    }
+    //   let boardName = "";
+    //   if (boardTitle) {
+    //     const match = boardTitle.match(/\[([^\]]+)\]/);
+    //     if (match && match[1]) {
+    //       //boardName = match[1]; // 대괄호 안의 내용
+    //       boardName = boardTitle; // 대괄호가 없으면 전체 제목
+    //       description = description.replace(/ScrumId:[^\n]*/, `ScrumId: ${boardName}`);
+    //     } else {
+    //       boardName = boardTitle; // 대괄호가 없으면 전체 제목
+    //     }
+    //   } else {
+    //     boardName = "Unknown"; // 보드를 찾을 수 없는 경우
+    //   }
+    // }
     // 카드 생성
     Cards.insert({
       title: cardTitle,
